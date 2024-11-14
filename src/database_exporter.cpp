@@ -40,12 +40,66 @@ RTABMapDatabaseExtractor::~RTABMapDatabaseExtractor() {
   pcl::io::savePCDFileBinary(path + timestamp_ + ".pcd", *rtabmap_cloud_);
 
   // save the occupancy grid
+  rtabmap_occupancy_grid_ = point_cloud_to_occupancy_grid(rtabmap_cloud_);
   nav2_map_server::SaveParameters save_params;
   save_params.map_file_name = path + timestamp_;
   save_params.image_format = "pgm";
   save_params.free_thresh = 0.196;
   save_params.occupied_thresh = 0.65;
   nav2_map_server::saveMapToFile(*rtabmap_occupancy_grid_, save_params);
+}
+
+nav_msgs::msg::OccupancyGrid::SharedPtr
+RTABMapDatabaseExtractor::point_cloud_to_occupancy_grid(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+  // calculate the centroid
+  Eigen::Matrix<float, 4, 1> centroid;
+  pcl::ConstCloudIterator<pcl::PointXYZRGB> cloud_iterator(*cloud);
+  pcl::compute3DCentroid(cloud_iterator, centroid);
+
+  float max_x = -std::numeric_limits<float>::infinity();
+  float max_y = -std::numeric_limits<float>::infinity();
+  float min_x = std::numeric_limits<float>::infinity();
+  float min_y = std::numeric_limits<float>::infinity();
+
+  for (const auto &point : cloud->points) {
+    if (point.x > max_x) {
+      max_x = point.x;
+    }
+    if (point.y > max_y) {
+      max_y = point.y;
+    }
+    if (point.x < min_x) {
+      min_x = point.x;
+    }
+    if (point.y < min_y) {
+      min_y = point.y;
+    }
+  }
+
+  nav_msgs::msg::OccupancyGrid::SharedPtr occupancy_grid =
+      std::make_shared<nav_msgs::msg::OccupancyGrid>();
+  cloud->width = cloud->points.size();
+  occupancy_grid->info.resolution = 0.05;
+  occupancy_grid->info.width =
+      std::abs(max_x - min_x) / occupancy_grid->info.resolution + 1;
+  occupancy_grid->info.height =
+      std::abs(max_y - min_y) / occupancy_grid->info.resolution + 1;
+  occupancy_grid->info.origin.position.x = min_x;
+  occupancy_grid->info.origin.position.y = min_y;
+  occupancy_grid->info.origin.position.z = 0;
+  occupancy_grid->info.origin.orientation.x = 0;
+  occupancy_grid->info.origin.orientation.y = 0;
+  occupancy_grid->info.origin.orientation.z = 0;
+  occupancy_grid->info.origin.orientation.w = 1;
+  occupancy_grid->data.resize(
+      occupancy_grid->info.width * occupancy_grid->info.height, 0);
+  for (const auto &point : cloud->points) {
+    int x = (point.x - min_x) / occupancy_grid->info.resolution;
+    int y = (point.y - min_y) / occupancy_grid->info.resolution;
+    int index = y * occupancy_grid->info.width + x;
+    occupancy_grid->data.at(index) = 100;
+  }
+  return occupancy_grid;
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr
@@ -195,6 +249,11 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
     }
 
     node.sensorData().uncompressData(&rgb, &depth);
+
+    if (!rgb.empty()) {
+      cv::imshow("RGB", rgb);
+      cv::waitKey(10);
+    }
 
     if (!rgb.empty() && !net_.empty()) {
       int center_x = rgb.cols / 2;
@@ -476,7 +535,7 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
     }
 
     cv::imshow("Overlay", frame);
-    cv::waitKey(50); // Press any key to continue
+    cv::waitKey(10); // Press any key to continue
 
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
   }
@@ -617,7 +676,7 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
       }
     }
     std::cout << "Processed " << imagesDone++ << "/"
-              << static_cast<int>(robotPoses.size()) << " images";
+              << static_cast<int>(robotPoses.size()) << " images\n";
   }
 
   pcl::IndicesPtr validIndices(new std::vector<int>(pointToPixel.size()));
@@ -695,7 +754,6 @@ int main(int argc, char *argv[]) {
               << argv[0] << " <rtabmap_db>" << std::endl;
     return 1;
   }
-
 
   RTABMapDatabaseExtractor extractor(rtabmap_database_name, model_name);
   extractor.load_rtabmap_db();

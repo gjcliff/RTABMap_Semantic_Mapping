@@ -40,6 +40,9 @@ private:
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr
   filter_point_cloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
 
+  nav_msgs::msg::OccupancyGrid::SharedPtr
+  point_cloud_to_occupancy_grid(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+
   std::string generate_timestamp_string();
 
   cv::dnn::Net net_;
