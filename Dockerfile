@@ -6,16 +6,34 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     ninja-build \
-    libclang-10-dev \
     git \
-    libeigen3-dev \
+    g++ \
+    wget \
+    unzip \
     ros-humble-rtabmap-ros \
-    ros-humble-navigation2
+    ros-humble-navigation2 \
+    libpcl-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY ./database_extractor /app/database_extractor
+RUN wget -O opencv.zip https://github.com/opencv/opencv/archive/4.10.0.zip && \
+    wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.10.0.zip && \
+    unzip opencv.zip && \
+    unzip opencv_contrib.zip && \
+    mkdir -p build && cd build && \
+    cmake -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib-4.10.0/modules ../opencv-4.10.0 && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd /app && \
+    rm -rf build opencv.zip opencv_contrib.zip opencv-4.10.0 opencv_contrib-4.10.0
 
-RUN cd /app/database_extractor && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j
+COPY ./include /app/include
+COPY ./src /app/src
+COPY ./databases /app/databases
+COPY ./models /app/models
+
+RUN mkdir build && cd build && \
+    cmake .. -G "Ninja" && \
+    ninja
+
+ENTRYPOINT ["/app/build/rtabmap_ros_node"]

@@ -543,8 +543,8 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
       }
     }
 
-    cv::imshow("Overlay", frame);
-    cv::waitKey(10); // Press any key to continue
+    // cv::imshow("Overlay", frame);
+    // cv::waitKey(10); // Press any key to continue
 
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
   }
