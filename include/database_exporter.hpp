@@ -52,5 +52,10 @@ private:
   std::string rtabmap_database_path_;
   std::string model_path_;
   std::string timestamp_;
+  std::vector<cv::Mat> raw_images_;
+  std::vector<cv::Mat> raw_depths_;
+  std::vector<std::vector<rtabmap::CameraModel>> camera_models_;
+  std::vector<std::vector<rtabmap::StereoCameraModel>> stereo_models_;
+
   bool export_images_;
 };

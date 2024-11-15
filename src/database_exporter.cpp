@@ -29,28 +29,108 @@ RTABMapDatabaseExtractor::RTABMapDatabaseExtractor(
 
     net_ = cv::dnn::readNet(model_path_);
   }
+
+  // create output directories for the deconstructor
+  std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
+  if (!std::filesystem::create_directory(path)) {
+    std::cout << "Failed to create output directory" << std::endl;
+    return;
+  }
+  if (!std::filesystem::create_directory(path + "/depths")) {
+    std::cout << "Failed to create depths directory" << std::endl;
+    return;
+  }
+  std::string cloud_path = path + "/cloud/" + timestamp_ + ".pcd";
+  if (!std::filesystem::create_directory(path + "/cloud")) {
+    std::cout << "Failed to create cloud directory" << std::endl;
+    return;
+  }
+  std::string grid_path = path + "/grid/" + timestamp_ + ".pgm";
+  if (!std::filesystem::create_directory(path + "/grid")) {
+    std::cout << "Failed to create grid directory" << std::endl;
+    return;
+  }
+  if (!std::filesystem::create_directory(path + "/images")) {
+    std::cout << "Failed to create images directory" << std::endl;
+    return;
+  }
 }
 
 RTABMapDatabaseExtractor::~RTABMapDatabaseExtractor() {
   // create the output directory
-  std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_ + "/";
-  std::filesystem::create_directory(path);
+  std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
 
   // save the point cloud
-  pcl::io::savePCDFileBinary(path + timestamp_ + ".pcd", *rtabmap_cloud_);
+  std::string cloud_path = path + "/cloud/" + timestamp_ + ".pcd";
+  pcl::io::savePCDFileBinary(cloud_path, *rtabmap_cloud_);
 
   // save the occupancy grid
+  std::string grid_path = path + "/grid/" + timestamp_ + ".pgm";
   rtabmap_occupancy_grid_ = point_cloud_to_occupancy_grid(rtabmap_cloud_);
   nav2_map_server::SaveParameters save_params;
-  save_params.map_file_name = path + timestamp_;
+  save_params.map_file_name = grid_path;
   save_params.image_format = "pgm";
   save_params.free_thresh = 0.196;
   save_params.occupied_thresh = 0.65;
   nav2_map_server::saveMapToFile(*rtabmap_occupancy_grid_, save_params);
+  int imagesExported = 0;
+  for (size_t i = 0; i < raw_images_.size(); ++i) {
+    std::string image_path = path + "/images/" + std::to_string(i) + ".jpg";
+    cv::imwrite(image_path, raw_images_.at(i));
+    ++imagesExported;
+  }
+  for (size_t i = 0; i < raw_depths_.size(); ++i) {
+    cv::Mat depthExported = raw_depths_.at(i);
+    std::string ext;
+    std::string depth_path = path + "/depth/" + std::to_string(i);
+    if (raw_depths_.at(i).type() != CV_16UC1 &&
+        raw_depths_.at(i).type() != CV_32FC1) {
+      ext = ".jpg";
+    } else {
+      ext = ".png";
+      if (raw_depths_.at(i).type() == CV_32FC1) {
+        depthExported = rtabmap::util2d::cvtDepthFromFloat(raw_depths_.at(i));
+      }
+    }
+
+    cv::imwrite(depth_path + ext, depthExported);
+    ++imagesExported;
+  }
+
+  // save calibration per image (calibration can change over time, e.g.
+  // camera has auto focus)
+  for (size_t i = 0; i < camera_models_.size(); i++) {
+    for (size_t j = 0; j < camera_models_.at(i).size(); j++) {
+      rtabmap::CameraModel model = camera_models_.at(i).at(j);
+      std::string modelName = std::to_string(i);
+      std::string dir = path + "/camera_models/";
+
+      if (camera_models_.at(i).size() > 1) {
+        modelName += "_" + uNumber2Str((int)j);
+      }
+      model.setName(modelName);
+      model.save(dir);
+    }
+  }
+
+  for (size_t i = 0; i < stereo_models_.size(); ++i) {
+    for (size_t j = 0; j < stereo_models_.at(i).size(); ++j) {
+      rtabmap::StereoCameraModel model = stereo_models_.at(i).at(j);
+      std::string modelName = std::to_string(i);
+      std::string dir = path + "/stereo_models/";
+      if (stereo_models_.at(i).size() > 1) {
+        modelName += "_" + std::to_string(j);
+      }
+      model.setName(modelName, "left", "right");
+      model.save(dir);
+    }
+  }
+  std::cout << "Images exported: " << imagesExported << std::endl;
 }
 
 nav_msgs::msg::OccupancyGrid::SharedPtr
-RTABMapDatabaseExtractor::point_cloud_to_occupancy_grid(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+RTABMapDatabaseExtractor::point_cloud_to_occupancy_grid(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
   // calculate the centroid
   Eigen::Matrix<float, 4, 1> centroid;
   pcl::ConstCloudIterator<pcl::PointXYZRGB> cloud_iterator(*cloud);
@@ -250,10 +330,10 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
 
     node.sensorData().uncompressData(&rgb, &depth);
 
-    if (!rgb.empty()) {
-      cv::imshow("RGB", rgb);
-      cv::waitKey(10);
-    }
+    // if (!rgb.empty()) {
+    //   cv::imshow("RGB", rgb);
+    //   cv::waitKey(10);
+    // }
 
     if (!rgb.empty() && !net_.empty()) {
       int center_x = rgb.cols / 2;
@@ -320,83 +400,14 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
 
     // saving images stuff
     if (!rgb.empty()) {
-      std::string dirSuffix = (depth.type() != CV_16UC1 &&
-                               depth.type() != CV_32FC1 && !depth.empty())
-                                  ? "left"
-                                  : "rgb";
-      std::string dir =
-          std::string(PROJECT_PATH) + "/output/" + timestamp_ + "/";
-      std::string output_dir = dir;
-      bool exportImagesId = true;
-      std::string outputPath =
-          dir + "/" +
-          (exportImagesId ? uNumber2Str(iter->first)
-                          : uFormat("%f", node.getStamp())) +
-          ".jpg";
-      cv::imwrite(outputPath, rgb);
-      ++imagesExported;
+      raw_images_.push_back(rgb);
       if (!depth.empty()) {
-        std::string ext;
-        cv::Mat depthExported = depth;
-        std::string outputName;
-        std::string baseName =
-            outputName.empty()
-                ? uSplit(UFile::getName(rtabmap_database_path_), '.').front()
-                : outputName;
-
-        if (depth.type() != CV_16UC1 && depth.type() != CV_32FC1) {
-          ext = ".jpg";
-          dir = output_dir + "/" + baseName + "_right";
-        } else {
-          ext = ".png";
-          dir = output_dir + "/" + baseName + "_depth";
-          if (depth.type() == CV_32FC1) {
-            depthExported = rtabmap::util2d::cvtDepthFromFloat(depth);
-          }
-        }
-        if (!UDirectory::exists(dir)) {
-          UDirectory::makeDir(dir);
-        }
-
-        outputPath = dir + "/" +
-                     (exportImagesId ? uNumber2Str(iter->first)
-                                     : uFormat("%f", node.getStamp())) +
-                     ext;
-        cv::imwrite(outputPath, depthExported);
+        raw_depths_.push_back(depth);
       }
-
       // save calibration per image (calibration can change over time, e.g.
       // camera has auto focus)
-      for (size_t i = 0; i < models.size(); ++i) {
-        rtabmap::CameraModel model = models[i];
-        std::string modelName =
-            (exportImagesId ? uNumber2Str(iter->first)
-                            : uFormat("%f", node.getStamp()));
-        if (models.size() > 1) {
-          modelName += "_" + uNumber2Str((int)i);
-        }
-        model.setName(modelName);
-        std::string dir = output_dir + "/" + timestamp_ + "_calib";
-        if (!UDirectory::exists(dir)) {
-          UDirectory::makeDir(dir);
-        }
-        model.save(dir);
-      }
-      for (size_t i = 0; i < stereoModels.size(); ++i) {
-        rtabmap::StereoCameraModel model = stereoModels[i];
-        std::string modelName =
-            (exportImagesId ? uNumber2Str(iter->first)
-                            : uFormat("%f", node.getStamp()));
-        if (stereoModels.size() > 1) {
-          modelName += "_" + uNumber2Str((int)i);
-        }
-        model.setName(modelName, "left", "right");
-        std::string dir = output_dir + "/" + timestamp_ + "_calib";
-        if (!UDirectory::exists(dir)) {
-          UDirectory::makeDir(dir);
-        }
-        model.save(dir);
-      }
+      camera_models_.push_back(models);
+      stereo_models_.push_back(stereoModels);
     }
 
     float voxelSize = 0.0f;
