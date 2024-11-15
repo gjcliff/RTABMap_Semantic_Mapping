@@ -40,12 +40,10 @@ RTABMapDatabaseExtractor::RTABMapDatabaseExtractor(
     std::cout << "Failed to create depths directory" << std::endl;
     return;
   }
-  std::string cloud_path = path + "/cloud/" + timestamp_ + ".pcd";
   if (!std::filesystem::create_directory(path + "/cloud")) {
     std::cout << "Failed to create cloud directory" << std::endl;
     return;
   }
-  std::string grid_path = path + "/grid/" + timestamp_ + ".pgm";
   if (!std::filesystem::create_directory(path + "/grid")) {
     std::cout << "Failed to create grid directory" << std::endl;
     return;
