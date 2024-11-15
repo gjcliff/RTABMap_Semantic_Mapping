@@ -10,8 +10,10 @@ RUN apt-get update && apt-get install -y \
     g++ \
     wget \
     unzip \
+    ros-humble-rtabmap \
     ros-humble-rtabmap-ros \
     ros-humble-navigation2 \
+    ros-humble-pcl-conversions \
     libpcl-dev && \
     rm -rf /var/lib/apt/lists/*
 
@@ -31,6 +33,9 @@ COPY ./include /app/include
 COPY ./src /app/src
 COPY ./databases /app/databases
 COPY ./models /app/models
+COPY ./CMakeLists.txt /app/CMakeLists.txt
+
+RUN . /opt/ros/humble/setup.sh
 
 RUN mkdir build && cd build && \
     cmake .. -G "Ninja" && \
