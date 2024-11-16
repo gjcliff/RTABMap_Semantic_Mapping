@@ -23,6 +23,7 @@
 
 #include <pcl/impl/point_types.hpp>
 #include <pcl/point_cloud.h>
+#include "pcl/io/pcd_io.h"
 
 #include <filesystem>
 #include <iostream>
