@@ -2,6 +2,12 @@
 Process RTABMap database files (.db) and run object detection with deep neural
 networks to perform semantic mapping.
 
+Table of Contents:
+1. [Introduction](#introduction)
+2. [Warning](#warning)
+3. [Docker](#docker)
+4. [Run on your host system](#run-on-your-host-system)
+
 ### Introduction
 This repo is a piece of a larger project to perform semantic mapping with
 mobile phones in order to create maps for a LUCI autonomous wheelchair. It takes
@@ -32,8 +38,16 @@ you need by using [this](https://github.com/introlab/rtabmap/blob/ff61266430017e
 ### Docker
 ```bash
 docker build -t rtabmap_dnn .
+docker run --rm -v ./output:/app/output rtabmap_dnn <name_of_db_file>
+```
+or
+```bash
+docker build -t rtabmap_dnn .
 docker run --rm -v ./output:/app/output rtabmap_dnn <name_of_db_file> <name_of_dnn_model>
 ```
+I haven't finished the semantic mapping portion of this package yet and object
+recognition doesn't work. It will work by Tuesday, 11/19/2024.
+
 ### Run on your host system
 Make sure that you have ros2 humble installed on your system:  
 https://docs.ros.org/en/humble/Installation.html
