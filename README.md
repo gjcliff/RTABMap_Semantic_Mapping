@@ -32,9 +32,7 @@ you need by using [this](https://github.com/introlab/rtabmap/blob/ff61266430017e
 ### Docker
 ```bash
 docker build -t rtabmap_dnn .
-docker run --rm -v ./output:/app/output rtabmap_dnn \
-    --arg1 <name_of_db_file> \
-    --arg2 <name_of_dnn_model> \
+docker run --rm -v ./output:/app/output rtabmap_dnn <name_of_db_file> <name_of_dnn_model>
 ```
 ### Run on your host system
 Make sure that you have ros2 humble installed on your system:  
