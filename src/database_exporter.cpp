@@ -63,7 +63,7 @@ RTABMapDatabaseExtractor::~RTABMapDatabaseExtractor() {
   pcl::io::savePCDFileBinary(cloud_path, *rtabmap_cloud_);
 
   // save the occupancy grid
-  std::string grid_path = path + "/grid/" + timestamp_ + ".pgm";
+  std::string grid_path = path + "/grid/" + timestamp_;
   rtabmap_occupancy_grid_ = point_cloud_to_occupancy_grid(rtabmap_cloud_);
   nav2_map_server::SaveParameters save_params;
   save_params.map_file_name = grid_path;
