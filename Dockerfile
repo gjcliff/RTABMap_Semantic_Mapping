@@ -16,18 +16,6 @@ RUN apt-get update && apt-get install -y \
     libpcl-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# RUN wget -O opencv.zip https://github.com/opencv/opencv/archive/4.10.0.zip && \
-#     wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.10.0.zip && \
-#     unzip opencv.zip && \
-#     unzip opencv_contrib.zip && \
-#     mkdir -p build && cd build && \
-#     cmake -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib-4.10.0/modules ../opencv-4.10.0 && \
-#     make -j$(nproc) && \
-#     make install && \
-#     ldconfig && \
-#     cd /app && \
-#     rm -rf build opencv.zip opencv_contrib.zip opencv-4.10.0 opencv_contrib-4.10.0
-
 RUN git clone https://github.com/introlab/rtabmap.git \
     && cd rtabmap \
     && git switch humble-devel \
@@ -44,12 +32,7 @@ COPY ./src /app/src
 COPY ./databases /app/databases
 COPY ./models /app/models
 COPY ./CMakeLists.txt /app/CMakeLists.txt
-
-# RUN . /opt/ros/humble/setup.sh
-#
-# RUN mkdir build && cd build && \
-#     cmake .. -G "Ninja" && \
-#     ninja
+COPY ./entrypoint.sh /app/entrypoint.sh
 
 RUN /bin/bash -c "source /opt/ros/humble/setup.bash \
     && mkdir build \
@@ -57,4 +40,6 @@ RUN /bin/bash -c "source /opt/ros/humble/setup.bash \
     && cmake .. -G 'Ninja' \
     && ninja"
 
-ENTRYPOINT ["/app/build/rtabmap_ros_node"]
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD []

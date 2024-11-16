@@ -745,10 +745,11 @@ bool RTABMapDatabaseExtractor::load_rtabmap_db() {
 }
 
 int main(int argc, char *argv[]) {
-
+  std::cout << "started!" << std::endl;
   std::string rtabmap_database_name;
   std::string model_name;
   if (argc == 1) {
+    std::cout << "argc: " << argc << std::endl;
     std::cout << "Usage: " << argv[0] << " <rtabmap_db> <model_name>" << " or "
               << argv[0] << " <rtabmap_db>" << std::endl;
     return 1;
@@ -759,6 +760,7 @@ int main(int argc, char *argv[]) {
     rtabmap_database_name = argv[1];
     model_name = argv[2];
   } else {
+    std::cout << "argc: " << argc << std::endl;
     std::cout << "Usage: " << argv[0] << " <rtabmap_db> <model_name>" << " or "
               << argv[0] << " <rtabmap_db>" << std::endl;
     return 1;
