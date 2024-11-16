@@ -4,7 +4,7 @@ networks to perform semantic mapping.
 
 Table of Contents:
 1. [Introduction](#introduction)
-2. [Warning](#warning)
+2. [Warnings](#warnings)
 3. [Docker](#docker)
 4. [Run on your host system](#run-on-your-host-system)
 
@@ -26,7 +26,7 @@ object detection. I use OpenCV 4.10.0's DNN module to run object detection and
 a yolov8n.onnx model, but you can use any model you'd like that works with this
 verison of OpenCV.
 
-### Warning
+### Warnings
 This project was designed specifically for RTABMap database files that were created
 by the iPhone app without LIDAR. I plan to build in support for all types of
 database files to extract the data from them, but as of today (11/15/2024) I
@@ -34,7 +34,11 @@ don't have the time. If you have database files created with methods other than
 the RTABMap iPhone app, you can fork the repo and modify the code to get the information
 you need by using [this](https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115) as a guide.
 
-
+Files created by the docker container in the ```output``` directory will be owned by
+root. You can change the owner to your host system's user with this command:
+```bash
+sudo chown -R your_user:your_user output/*
+```
 ### Docker
 ```bash
 docker build -t rtabmap_dnn .
