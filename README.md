@@ -20,6 +20,7 @@ The executable is meant to be run with two arguments
 **RTABMap Database File (.db):**
 * The name of a RTABMap database file (your_file.db) that is inside the ```databases```
 directory of this repo. Copy your database files there for them to be processed.
+
 **Image Recognition Model Name:**
 * The name of the model (your_model.onnx) that you'd like to use to perform
 object detection. I use OpenCV 4.10.0's DNN module to run object detection and
