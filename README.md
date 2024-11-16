@@ -75,19 +75,18 @@ sudo apt update && apt install -y \
     ros-humble-pcl-conversions \
     libpcl-dev
 ```
-Now we build and install opencv 4.10.0 from source:
+Now we build and install RTABMap from source:
 ```bash
-wget -O opencv.zip https://github.com/opencv/opencv/archive/4.10.0.zip && \
-wget -O opencv_contrib.zip https://github.com/opencv/opencv_contrib/archive/4.10.0.zip && \
-unzip opencv.zip && \
-unzip opencv_contrib.zip && \
-mkdir -p build && cd build && \
-cmake -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib-4.10.0/modules ../opencv-4.10.0 && \
-make -j$(nproc) && \
-make install && \
-ldconfig && \
-cd .. && \
-rm -rf build opencv.zip opencv_contrib.zip opencv-4.10.0 opencv_contrib-4.10.0
+git clone https://github.com/introlab/rtabmap.git \
+cd rtabmap \
+git switch humble-devel \
+cd build \
+cmake .. \
+make -j$(nproc) \
+make install \
+ldconfig \
+cd /app \
+rm -rf rtabmap
 ```
 Now we can build the rtabmap_dnn package:
 ```bash
