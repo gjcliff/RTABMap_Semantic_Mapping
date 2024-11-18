@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     wget \
     unzip \
+    pybind11-dev \
     ros-humble-rtabmap-ros \
     ros-humble-navigation2 \
     ros-humble-pcl-conversions \

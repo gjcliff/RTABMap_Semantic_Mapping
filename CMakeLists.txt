@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.15...3.29)
 project(rtabmap_database_export)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(PYBIND11_FINDPYTHON ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Type of build." FORCE)
@@ -20,17 +21,15 @@ add_definitions(-DPROJECT_PATH="${PROJECT_SOURCE_DIR}")
 # set(CMAKE_PREFIX_PATH "/opt/ros/humble" ${CMAKE_PREFIX_PATH})
 
 # find dependencies
-# find_package(ament_cmake REQUIRED)
 find_package(PCL 1.12 REQUIRED)
-# find_package(pcl_conversions REQUIRED)
 find_package(RTABMap REQUIRED)
 find_package(nav2_map_server REQUIRED)
 find_package(OpenCV 4.5.4 REQUIRED)
-# find_package(rclcpp REQUIRED)
-# find_package(rosidl_typesupport_cpp REQUIRED)
-# find_package(OpenCV 4.10.0 REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)
+find_package(Python3 COMPONENTS Development Interpreter REQUIRED)
+find_package(rclcpp REQUIRED)
 
-add_executable(database_exporter
+add_library(database_exporter SHARED
     src/database_exporter.cpp
 )
 
@@ -51,6 +50,16 @@ target_link_libraries(database_exporter PUBLIC
     # ${OpenCV_LIBS}
     rtabmap::rtabmap)
 
-install(TARGETS database_exporter
+pybind11_add_module(database_exporter_py
+    py_wrapper/wrapper.cpp
+)
+
+target_link_libraries(database_exporter_py PRIVATE
+    database_exporter
+    rclcpp::rclcpp
+    rtabmap::rtabmap
+)
+
+install(TARGETS database_exporter database_exporter_py
     DESTINATION lib/${PROJECT_NAME}
 )

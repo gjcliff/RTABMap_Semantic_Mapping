@@ -15,6 +15,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav2_map_server/map_io.hpp>
 #include <pcl/cloud_iterator.h>
 #include <pcl/common/centroid.h>
@@ -28,12 +29,12 @@
 #include <filesystem>
 #include <iostream>
 
-class RTABMapDatabaseExtractor {
+class DatabaseExporter {
 public:
-  RTABMapDatabaseExtractor(std::string rtabmap_database_name,
+  DatabaseExporter(std::string rtabmap_database_name,
                            std::string model_name);
 
-  ~RTABMapDatabaseExtractor();
+  ~DatabaseExporter();
   bool load_rtabmap_db();
 
 private:

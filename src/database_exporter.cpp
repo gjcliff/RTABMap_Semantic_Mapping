@@ -1,6 +1,6 @@
 #include "database_exporter.hpp"
 
-RTABMapDatabaseExtractor::RTABMapDatabaseExtractor(
+DatabaseExporter::DatabaseExporter(
     std::string rtabmap_database_name, std::string model_name)
     : timestamp_(generate_timestamp_string()) {
   // check if database name is empty
@@ -54,7 +54,7 @@ RTABMapDatabaseExtractor::RTABMapDatabaseExtractor(
   }
 }
 
-RTABMapDatabaseExtractor::~RTABMapDatabaseExtractor() {
+DatabaseExporter::~DatabaseExporter() {
   // create the output directory
   std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
 
@@ -127,7 +127,7 @@ RTABMapDatabaseExtractor::~RTABMapDatabaseExtractor() {
 }
 
 nav_msgs::msg::OccupancyGrid::SharedPtr
-RTABMapDatabaseExtractor::point_cloud_to_occupancy_grid(
+DatabaseExporter::point_cloud_to_occupancy_grid(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
   // calculate the centroid
   Eigen::Matrix<float, 4, 1> centroid;
@@ -181,7 +181,7 @@ RTABMapDatabaseExtractor::point_cloud_to_occupancy_grid(
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr
-RTABMapDatabaseExtractor::filter_point_cloud(
+DatabaseExporter::filter_point_cloud(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
   // statistical outlier removal
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr sor_cloud(
@@ -207,7 +207,7 @@ RTABMapDatabaseExtractor::filter_point_cloud(
 
   return radius_cloud;
 }
-std::string RTABMapDatabaseExtractor::generate_timestamp_string() {
+std::string DatabaseExporter::generate_timestamp_string() {
   std::time_t now = std::time(nullptr);
   std::tm *ptm = std::localtime(&now);
 
@@ -218,7 +218,7 @@ std::string RTABMapDatabaseExtractor::generate_timestamp_string() {
   return oss.str();
 }
 
-bool RTABMapDatabaseExtractor::load_rtabmap_db() {
+bool DatabaseExporter::load_rtabmap_db() {
   pcl::PointCloud<pcl::PointXYZRGB> cloud;
   rtabmap::ParametersMap parameters;
   rtabmap::DBDriver *driver = rtabmap::DBDriver::create();
@@ -766,7 +766,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  RTABMapDatabaseExtractor extractor(rtabmap_database_name, model_name);
+  DatabaseExporter extractor(rtabmap_database_name, model_name);
   extractor.load_rtabmap_db();
 
   return 0;
