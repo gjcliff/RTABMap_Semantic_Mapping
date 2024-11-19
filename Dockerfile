@@ -33,14 +33,18 @@ COPY ./include /app/include
 COPY ./src /app/src
 COPY ./databases /app/databases
 COPY ./models /app/models
-COPY ./scripts /app/scripts
-COPY ./py_wrapper /app/py_wrapper
 COPY ./CMakeLists.txt /app/CMakeLists.txt
 COPY ./entrypoint.sh /app/entrypoint.sh
-COPY ./setup.py /app/setup.py
 
 RUN /bin/bash -c "source /opt/ros/humble/setup.bash \
-    && pip3 install ."
+    && pip3 install ultralytics"
+
+RUN /bin/bash -c "source /opt/ros/humble/setup.bash \
+    && mkdir build \
+    && cd build \
+    && cmake .. -G 'Ninja' \
+    && ninja \
+    && ninja install"
 
 RUN chmod +x /app/entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]

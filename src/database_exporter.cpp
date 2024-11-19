@@ -1,7 +1,10 @@
 #include "database_exporter.hpp"
+#include "pylifecycle.h"
+#include <pybind11/attr.h>
+#include <pybind11/embed.h>
 
-DatabaseExporter::DatabaseExporter(
-    std::string rtabmap_database_name, std::string model_name)
+DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
+                                   std::string model_name)
     : timestamp_(generate_timestamp_string()) {
   // check if database name is empty
   if (rtabmap_database_name.empty()) {
@@ -72,22 +75,21 @@ DatabaseExporter::~DatabaseExporter() {
   save_params.occupied_thresh = 0.65;
   nav2_map_server::saveMapToFile(*rtabmap_occupancy_grid_, save_params);
   int imagesExported = 0;
-  for (size_t i = 0; i < raw_images_.size(); ++i) {
+  for (size_t i = 0; i < images_.size(); ++i) {
     std::string image_path = path + "/images/" + std::to_string(i) + ".jpg";
-    cv::imwrite(image_path, raw_images_.at(i));
+    cv::imwrite(image_path, images_.at(i));
     ++imagesExported;
   }
-  for (size_t i = 0; i < raw_depths_.size(); ++i) {
-    cv::Mat depthExported = raw_depths_.at(i);
+  for (size_t i = 0; i < depths_.size(); ++i) {
+    cv::Mat depthExported = depths_.at(i);
     std::string ext;
     std::string depth_path = path + "/depth/" + std::to_string(i);
-    if (raw_depths_.at(i).type() != CV_16UC1 &&
-        raw_depths_.at(i).type() != CV_32FC1) {
+    if (depths_.at(i).type() != CV_16UC1 && depths_.at(i).type() != CV_32FC1) {
       ext = ".jpg";
     } else {
       ext = ".png";
-      if (raw_depths_.at(i).type() == CV_32FC1) {
-        depthExported = rtabmap::util2d::cvtDepthFromFloat(raw_depths_.at(i));
+      if (depths_.at(i).type() == CV_32FC1) {
+        depthExported = rtabmap::util2d::cvtDepthFromFloat(depths_.at(i));
       }
     }
 
@@ -124,6 +126,26 @@ DatabaseExporter::~DatabaseExporter() {
     }
   }
   std::cout << "Images exported: " << imagesExported << std::endl;
+}
+
+cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array) {
+  py::buffer_info buf = np_array.request();
+  cv::Mat mat(buf.shape[0], buf.shape[1], CV_8UC3, (uchar *)buf.ptr);
+  return mat;
+}
+
+py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat) {
+  return py::array_t<uint8_t>({mat.rows, mat.cols, mat.channels()},
+                              {mat.step[0], mat.step[1]}, mat.data);
+}
+
+void DatabaseExporter::get_detections(py::object &net)
+{
+  for (const auto &image : images_) {
+    py::array np_array = mat_to_numpy(image);
+    py::list detections = net.attr("predict")(np_array);
+    std::cout << "detections: " << detections.size() << std::endl;
+  }
 }
 
 nav_msgs::msg::OccupancyGrid::SharedPtr
@@ -180,8 +202,7 @@ DatabaseExporter::point_cloud_to_occupancy_grid(
   return occupancy_grid;
 }
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr
-DatabaseExporter::filter_point_cloud(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
   // statistical outlier removal
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr sor_cloud(
@@ -398,10 +419,7 @@ bool DatabaseExporter::load_rtabmap_db() {
 
     // saving images stuff
     if (!rgb.empty()) {
-      raw_images_.push_back(rgb);
-      if (!depth.empty()) {
-        raw_depths_.push_back(depth);
-      }
+      images_.push_back(rgb);
       // save calibration per image (calibration can change over time, e.g.
       // camera has auto focus)
       camera_models_.push_back(models);
@@ -542,6 +560,8 @@ bool DatabaseExporter::load_rtabmap_db() {
         }
       }
     }
+
+    depths_.push_back(frame);
 
     // cv::imshow("Overlay", frame);
     // cv::waitKey(10); // Press any key to continue
@@ -741,33 +761,40 @@ bool DatabaseExporter::load_rtabmap_db() {
 
   pcl::copyPointCloud(*cloudToExport, *rtabmap_cloud_);
 
+  sensor_msgs::msg::PointCloud2 cloud_msg;
+  pcl::toROSMsg(cloud, cloud_msg);
+
   return true;
 }
 
 int main(int argc, char *argv[]) {
-  std::cout << "started!" << std::endl;
-  std::string rtabmap_database_name;
-  std::string model_name;
-  if (argc == 1) {
-    std::cout << "argc: " << argc << std::endl;
-    std::cout << "Usage: " << argv[0] << " <rtabmap_db> <model_name>" << " or "
-              << argv[0] << " <rtabmap_db>" << std::endl;
-    return 1;
-  } else if (argc == 2) {
-    rtabmap_database_name = argv[1];
-    model_name = "";
-  } else if (argc == 3) {
-    rtabmap_database_name = argv[1];
-    model_name = argv[2];
-  } else {
-    std::cout << "argc: " << argc << std::endl;
-    std::cout << "Usage: " << argv[0] << " <rtabmap_db> <model_name>" << " or "
-              << argv[0] << " <rtabmap_db>" << std::endl;
-    return 1;
+  try {
+    py::scoped_interpreter guard{};
+    py::module yolov8 = py::module::import("ultralytics");
+    py::object YOLO = yolov8.attr("YOLO");
+    py::object net = YOLO("yolov8m.pt");
+
+    std::string rtabmap_database_name;
+    std::string model_name;
+    if (argc == 1) {
+      return 1;
+    } else if (argc == 2) {
+      rtabmap_database_name = argv[1];
+      model_name = "";
+    } else if (argc == 3) {
+      rtabmap_database_name = argv[1];
+      model_name = argv[2];
+    } else {
+      return 1;
+    }
+
+    DatabaseExporter extractor(rtabmap_database_name, model_name);
+    extractor.load_rtabmap_db();
+
+    extractor.get_detections(net);
+
+  } catch (const std::exception &e) {
+    std::cerr << "Error: " << e.what() << std::endl;
   }
-
-  DatabaseExporter extractor(rtabmap_database_name, model_name);
-  extractor.load_rtabmap_db();
-
   return 0;
 }

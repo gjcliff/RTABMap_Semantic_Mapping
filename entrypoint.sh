@@ -4,4 +4,4 @@
 source /opt/ros/humble/setup.bash
 
 # Execute the passed command (arguments are passed via "$@")
-exec python3 scripts/semantic_mapping.py "$@"
+exec /app/build/database_exporter "$@"

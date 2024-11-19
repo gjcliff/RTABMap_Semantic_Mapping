@@ -1,3 +1,4 @@
 .cache
 build
 env
+rtabmap_database_export.egg-info
