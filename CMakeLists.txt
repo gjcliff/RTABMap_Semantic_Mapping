@@ -61,5 +61,5 @@ target_link_libraries(database_exporter_py PRIVATE
 )
 
 install(TARGETS database_exporter database_exporter_py
-    DESTINATION lib/${PROJECT_NAME}
+    LIBRARY DESTINATION ${CMAKE_BINARY_DIR}/lib
 )

@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     pybind11-dev \
+    python3-pip \
     ros-humble-rtabmap-ros \
     ros-humble-navigation2 \
     ros-humble-pcl-conversions \
@@ -32,14 +33,14 @@ COPY ./include /app/include
 COPY ./src /app/src
 COPY ./databases /app/databases
 COPY ./models /app/models
+COPY ./scripts /app/scripts
+COPY ./py_wrapper /app/py_wrapper
 COPY ./CMakeLists.txt /app/CMakeLists.txt
 COPY ./entrypoint.sh /app/entrypoint.sh
+COPY ./setup.py /app/setup.py
 
 RUN /bin/bash -c "source /opt/ros/humble/setup.bash \
-    && mkdir build \
-    && cd build \
-    && cmake .. -G 'Ninja' \
-    && ninja"
+    && pip3 install ."
 
 RUN chmod +x /app/entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]
