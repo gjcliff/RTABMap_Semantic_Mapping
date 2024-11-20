@@ -136,15 +136,28 @@ cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array) {
 
 py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat) {
   return py::array_t<uint8_t>({mat.rows, mat.cols, mat.channels()},
-                              {mat.step[0], mat.step[1]}, mat.data);
+                              {mat.step[0], mat.step[1], sizeof(uint8_t)},
+                              mat.data);
 }
 
-void DatabaseExporter::get_detections(py::object &net)
-{
+void DatabaseExporter::get_detections(py::object &net) {
   for (const auto &image : images_) {
     py::array np_array = mat_to_numpy(image);
     py::list detections = net.attr("predict")(np_array);
-    std::cout << "detections: " << detections.size() << std::endl;
+    for (auto detection : detections) {
+      std::cout << py::str(detection).cast<std::string>() << std::endl;
+      py::object boxes = detection.attr("boxes");
+      py::object names = detection.attr("names");
+      py::object speed = detection.attr("speed");
+      std::cout << "Boxes: " << py::str(boxes).cast<std::string>() << std::endl;
+      std::cout << "Speed: " << py::str(speed).cast<std::string>() << std::endl;
+      if (!boxes.is_none()) {
+        auto box_list = boxes.attr("xyxy").cast<py::list>(); // Example of accessing box coordinates
+        for (auto box : box_list) {
+            std::cout << "Box: " << py::str(box).cast<std::string>() << std::endl;
+        }
+    }
+    }
   }
 }
 
