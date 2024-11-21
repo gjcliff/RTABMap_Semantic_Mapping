@@ -80,16 +80,17 @@ DatabaseExporter::~DatabaseExporter() {
     cv::imwrite(image_path, images_.at(i));
     ++imagesExported;
   }
-  for (size_t i = 0; i < depths_.size(); ++i) {
-    cv::Mat depthExported = depths_.at(i);
+  for (const auto &depth : depth_images_) {
+    cv::Mat depthExported = depth.first;
+    depth_images_.pop_front();
     std::string ext;
-    std::string depth_path = path + "/depth/" + std::to_string(i);
-    if (depths_.at(i).type() != CV_16UC1 && depths_.at(i).type() != CV_32FC1) {
+    std::string depth_path = path + "/depth/" + std::to_string(imagesExported);
+    if (depthExported.type() != CV_16UC1 && depthExported.type() != CV_32FC1) {
       ext = ".jpg";
     } else {
       ext = ".png";
-      if (depths_.at(i).type() == CV_32FC1) {
-        depthExported = rtabmap::util2d::cvtDepthFromFloat(depths_.at(i));
+      if (depthExported.type() == CV_32FC1) {
+        depthExported = rtabmap::util2d::cvtDepthFromFloat(depthExported);
       }
     }
 
@@ -190,13 +191,14 @@ void DatabaseExporter::get_detections(py::object &net) {
           std::cout << "Names: " << py::str(names).cast<std::string>()
                     << std::endl;
           py::object classes = boxes.attr("cls");
-          std::string label = names[py::int_(classes[py::int_(i)])].cast<std::string>();
+          std::string label =
+              names[py::int_(classes[py::int_(i)])].cast<std::string>();
           cv::putText(image, label, cv::Point(x1, y1 - 10),
                       cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
 
           // Add the confidence to the image
-          std::cout << "Confidence: "
-                    << conf_tensor[py::int_(i)].cast<float>() << std::endl;
+          std::cout << "Confidence: " << conf_tensor[py::int_(i)].cast<float>()
+                    << std::endl;
           std::string confidence =
               std::to_string(conf_tensor[py::int_(i)].cast<float>());
           cv::putText(image, confidence, cv::Point(x1, y1 - 30),
@@ -303,6 +305,86 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
 
   return radius_cloud;
 }
+
+std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
+DatabaseExporter::project_cloud_to_camera(
+    const cv::Size &image_size, const cv::Mat &camera_matrix,
+    const pcl::PCLPointCloud2::Ptr cloud,
+    const rtabmap::Transform &camera_transform) {
+  UASSERT(!camera_transform.isNull());
+  UASSERT(!cloud->data.empty());
+  UASSERT(camera_matrix.type() == CV_64FC1 && camera_matrix.cols == 3 &&
+          camera_matrix.cols == 3);
+
+  float fx = camera_matrix.at<double>(0, 0);
+  float fy = camera_matrix.at<double>(1, 1);
+  float cx = camera_matrix.at<double>(0, 2);
+  float cy = camera_matrix.at<double>(1, 2);
+
+  cv::Mat registered = cv::Mat::zeros(image_size, CV_32FC1);
+  rtabmap::Transform t = camera_transform.inverse();
+
+  // create a map from each pixel to the index of their point in the pointcloud
+  std::map<std::pair<int, int>, int> pixel_to_point_map;
+
+  pcl::MsgFieldMap field_map;
+  pcl::createMapping<pcl::PointXYZ>(cloud->fields, field_map);
+
+  int count = 0;
+  if (field_map.size() == 1) {
+    for (uint32_t row = 0; row < (uint32_t)cloud->height; ++row) {
+      const uint8_t *row_data = &cloud->data[row * cloud->row_step];
+      for (uint32_t col = 0; col < (uint32_t)cloud->width; ++col) {
+        const uint8_t *msg_data = row_data + col * cloud->point_step;
+        pcl::PointXYZ ptScan;
+        memcpy(&ptScan, msg_data + field_map.front().serialized_offset,
+               field_map.front().size);
+        ptScan = rtabmap::util3d::transformPoint(ptScan, t);
+
+        // re-project in camera frame
+        float z = ptScan.z;
+        bool set = false;
+        if (z > 0.0f) {
+          float invZ = 1.0f / z;
+          float dx = (fx * ptScan.x) * invZ + cx;
+          float dy = (fy * ptScan.y) * invZ + cy;
+          int dx_low = dx;
+          int dy_low = dy;
+          int dx_high = dx + 0.5f;
+          int dy_high = dy + 0.5f;
+          if (uIsInBounds(dx_low, 0, registered.cols) &&
+              uIsInBounds(dy_low, 0, registered.rows)) {
+            set = true;
+            float &zReg = registered.at<float>(dy_low, dx_low);
+            if (zReg == 0 || z < zReg) {
+              zReg = z;
+            }
+          }
+          if ((dx_low != dx_high || dy_low != dy_high) &&
+              uIsInBounds(dx_high, 0, registered.cols) &&
+              uIsInBounds(dy_high, 0, registered.rows)) {
+            set = true;
+            float &zReg = registered.at<float>(dy_high, dx_high);
+            if (zReg == 0 || z < zReg) {
+              zReg = z;
+            }
+          }
+          if (set) {
+            pixel_to_point_map[std::make_pair(dy_low, dx_low)] = count;
+            count++;
+          }
+        }
+      }
+    }
+  } else {
+    std::cerr << "field map pcl::pointXYZ not found!" << std::endl;
+  }
+  std::cout << "Points in camera=" << count << "/" << cloud->data.size()
+            << std::endl;
+
+  return {registered, pixel_to_point_map};
+}
+
 std::string DatabaseExporter::generate_timestamp_string() {
   std::time_t now = std::time(nullptr);
   std::tm *ptm = std::localtime(&now);
@@ -424,79 +506,11 @@ bool DatabaseExporter::load_rtabmap_db() {
 
     node.sensorData().uncompressData(&rgb, &depth);
 
-    // if (!rgb.empty()) {
-    //   cv::imshow("RGB", rgb);
-    //   cv::waitKey(10);
-    // }
-
-    if (!rgb.empty() && !net_.empty()) {
-      int center_x = rgb.cols / 2;
-      int center_y = rgb.rows / 2;
-
-      int crop_width = 416;
-      int crop_height = 416;
-
-      cv::Mat crop =
-          rgb(cv::Rect(center_x - crop_width / 2, center_y - crop_height / 2,
-                       crop_width, crop_height));
-
-      cv::Mat resized_image;
-      cv::resize(crop, resized_image, cv::Size(crop_width, crop_height));
-
-      cv::Mat blob = cv::dnn::blobFromImage(resized_image, 1 / 255.0,
-                                            cv::Size(crop_width, crop_height),
-                                            cv::Scalar(0, 0, 0), true, false);
-      if (blob.empty()) {
-        std::cout << "Failed to create blob" << std::endl;
-        return false;
-      }
-      net_.setInput(blob);
-      std::vector<cv::Mat> detections;
-      net_.forward(detections);
-
-      std::cout << "detections size: " << detections.size() << std::endl;
-      // float confidence_threshold = 0.5;
-      // for (size_t i = 0; i < detections.size(); ++i) {
-      //   float *data = (float *)detections[i].data;
-      //
-      //   // Loop through each detection
-      //   for (int j = 0; j < detections[i].rows;
-      //        ++j, data += detections[i].cols) {
-      //     float confidence = data[4]; // Confidence score of the detection
-      //     RCLCPP_INFO_STREAM(get_logger(), "confidence: " << confidence);
-      //     RCLCPP_INFO_STREAM(
-      //       get_logger(), "confidence_threshold: " <<
-      //       confidence_threshold);
-      //     if (confidence > confidence_threshold) {
-      //       int left = (int)(data[0] * resized_image.cols);   // x1
-      //       int top = (int)(data[1] * resized_image.rows);    // y1
-      //       int right = (int)(data[2] * resized_image.cols);  // x2
-      //       int bottom = (int)(data[3] * resized_image.rows); // y2
-      //
-      //       // Draw bounding box
-      //       cv::rectangle(resized_image, cv::Point(left, top),
-      //                     cv::Point(right, bottom), cv::Scalar(0, 255, 0),
-      //                     2);
-      //
-      //       // Display confidence text
-      //       std::string label = cv::format("%.2f", confidence);
-      //       cv::putText(resized_image, label, cv::Point(left, top - 10),
-      //                   cv::FONT_HERSHEY_SIMPLEX, 0.5,
-      //                   cv::Scalar(255, 255, 255), 2);
-      //     }
-      //   }
-      // }
-      //
-      // // Display the output image with bounding boxes
-      // cv::imshow("Detection", resized_image);
-      // cv::waitKey(50);
-    }
-
     // saving images stuff
     if (!rgb.empty()) {
       images_.push_back(rgb);
-      // save calibration per image (calibration can change over time, e.g.
-      // camera has auto focus)
+      // save calibration per image
+      // calibration can change over time, e.g. camera has auto focus
       camera_models_.push_back(models);
       stereo_models_.push_back(stereoModels);
     }
@@ -606,6 +620,7 @@ bool DatabaseExporter::load_rtabmap_db() {
     rtabmap_cloud_ = assembledCloud;
   }
 
+  // create a point cloud from the rtabmap cloud
   pcl::PCLPointCloud2::Ptr cloud2(new pcl::PCLPointCloud2);
   pcl::toPCLPointCloud2(*rtabmap_cloud_, *cloud2);
 
@@ -618,10 +633,11 @@ bool DatabaseExporter::load_rtabmap_db() {
                   iter->second.front().imageWidth() * iter->second.size(),
                   CV_32FC1);
     for (size_t i = 0; i < iter->second.size(); ++i) {
-      cv::Mat subDepth = rtabmap::util3d::projectCloudToCamera(
+      auto depth_image = project_cloud_to_camera(
           iter->second.at(i).imageSize(), iter->second.at(i).K(), cloud2,
           robotPoses.at(iter->first) * iter->second.at(i).localTransform());
-      subDepth.copyTo(
+      depth_images_.push_back(depth_image);
+      depth_image.first.copyTo(
           depth(cv::Range::all(),
                 cv::Range(i * iter->second.front().imageWidth(),
                           (i + 1) * iter->second.front().imageWidth())));
@@ -637,9 +653,6 @@ bool DatabaseExporter::load_rtabmap_db() {
     }
 
     depths_.push_back(frame);
-
-    // cv::imshow("Overlay", frame);
-    // cv::waitKey(10); // Press any key to continue
 
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
   }
