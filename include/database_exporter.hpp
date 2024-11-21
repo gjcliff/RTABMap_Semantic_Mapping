@@ -34,18 +34,30 @@
 
 #include <filesystem>
 #include <iostream>
+#include <random>
 
 namespace py = pybind11;
+
+struct Result {
+  bool success = false;
+  std::string timestamp = "";
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+  std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+                       std::map<std::pair<int, int>, int>>>
+      mapping_data;
+};
+
+struct BoundingBox {
+  int x1, y1, x2, y2;
+  BoundingBox(int x1, int y1, int x2, int y2)
+      : x1(x1), y1(y1), x2(x2), y2(y2) {}
+};
 
 class DatabaseExporter {
 public:
   DatabaseExporter(std::string rtabmap_database_name, std::string model_name);
-
   ~DatabaseExporter();
-  bool load_rtabmap_db();
-  void get_detections(py::object &net);
 
-private:
   // @brief Convert a numpy array to a cv::Mat
   // @param np_array The numpy array
   // @return The cv::Mat
@@ -56,6 +68,16 @@ private:
   // @return The numpy array
   py::array mat_to_numpy(const cv::Mat &mat);
 
+  // @brief Load the rtabmap database
+  // @return The result of the operation
+  Result load_rtabmap_db();
+
+  // @brief Get the detections from the neural network
+  // @param net The neural network
+  // @return The detections
+  void get_detections(py::object &net);
+
+private:
   // @brief Filter the point cloud using statistical and radius outlier removal
   // @param cloud The point cloud
   // @return The filtered point cloud
@@ -87,18 +109,24 @@ private:
   std::string generate_timestamp_string();
 
   cv::dnn::Net net_;
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr rtabmap_cloud_;
   nav_msgs::msg::OccupancyGrid::SharedPtr rtabmap_occupancy_grid_;
 
   std::string rtabmap_database_path_;
   std::string model_path_;
   std::string timestamp_;
-  std::vector<cv::Mat> images_;
-  std::vector<cv::Mat> depths_;
+  std::list<cv::Mat> images_;
   std::vector<std::vector<rtabmap::CameraModel>> camera_models_;
   std::vector<std::vector<rtabmap::StereoCameraModel>> stereo_models_;
 
-  std::list<std::pair<cv::Mat, std::map<std::pair<int, int>, int>>> depth_images_;
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr rtabmap_cloud_;
+  // rgb image, depth image, transform from camera to world, pixel to point map
+  std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+                       std::map<std::pair<int, int>, int>>>
+      mapping_data_;
 
   bool export_images_;
+
+  std::random_device rd_;
+  std::mt19937 gen_;
+  std::uniform_int_distribution<> dis_;
 };

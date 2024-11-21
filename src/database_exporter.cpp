@@ -55,6 +55,18 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     std::cout << "Failed to create images directory" << std::endl;
     return;
   }
+  if (!std::filesystem::create_directory(path + "/camera_models")) {
+    std::cout << "Failed to create camera_models directory" << std::endl;
+    return;
+  }
+  if (!std::filesystem::create_directory(path + "/stereo_models")) {
+    std::cout << "Failed to create stereo_models directory" << std::endl;
+    return;
+  }
+  if (!std::filesystem::create_directory(path + "/semantic_objects")) {
+    std::cout << "Failed to create semantic_objects directory" << std::endl;
+    return;
+  }
 }
 
 DatabaseExporter::~DatabaseExporter() {
@@ -74,17 +86,20 @@ DatabaseExporter::~DatabaseExporter() {
   save_params.free_thresh = 0.196;
   save_params.occupied_thresh = 0.65;
   nav2_map_server::saveMapToFile(*rtabmap_occupancy_grid_, save_params);
-  int imagesExported = 0;
-  for (size_t i = 0; i < images_.size(); ++i) {
-    std::string image_path = path + "/images/" + std::to_string(i) + ".jpg";
-    cv::imwrite(image_path, images_.at(i));
-    ++imagesExported;
-  }
-  for (const auto &depth : depth_images_) {
-    cv::Mat depthExported = depth.first;
-    depth_images_.pop_front();
+  int rgbImagesExported = 0;
+  int depthImagesExported = 0;
+  for (const auto &data : mapping_data_) {
+    // save rgb images
+    std::string image_path =
+        path + "/images/" + std::to_string(rgbImagesExported) + ".jpg";
+    cv::imwrite(image_path, std::get<0>(data));
+    ++rgbImagesExported;
+
+    // save depth images
+    cv::Mat depthExported = std::get<1>(data);
     std::string ext;
-    std::string depth_path = path + "/depth/" + std::to_string(imagesExported);
+    std::string depth_path =
+        path + "/depth/" + std::to_string(depthImagesExported);
     if (depthExported.type() != CV_16UC1 && depthExported.type() != CV_32FC1) {
       ext = ".jpg";
     } else {
@@ -95,7 +110,7 @@ DatabaseExporter::~DatabaseExporter() {
     }
 
     cv::imwrite(depth_path + ext, depthExported);
-    ++imagesExported;
+    ++depthImagesExported;
   }
 
   // save calibration per image (calibration can change over time, e.g.
@@ -126,7 +141,8 @@ DatabaseExporter::~DatabaseExporter() {
       model.save(dir);
     }
   }
-  std::cout << "Images exported: " << imagesExported << std::endl;
+  std::cout << "RGB Images exported: " << rgbImagesExported << std::endl;
+  std::cout << "Depth Images exported: " << rgbImagesExported << std::endl;
 }
 
 cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array) {
@@ -139,90 +155,6 @@ py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat) {
   return py::array_t<uint8_t>({mat.rows, mat.cols, mat.channels()},
                               {mat.step[0], mat.step[1], sizeof(uint8_t)},
                               mat.data);
-}
-
-void DatabaseExporter::get_detections(py::object &net) {
-  for (const auto &image : images_) {
-    py::array np_array = mat_to_numpy(image);
-    py::list detections = net.attr("predict")(np_array);
-    for (auto detection : detections) {
-      std::cout << "Detection: " << py::str(detection).cast<std::string>()
-                << std::endl;
-      py::object boxes = detection.attr("boxes");
-      py::object names = detection.attr("names");
-      py::object speed = detection.attr("speed");
-      std::cout << "Boxes: " << py::str(boxes).cast<std::string>() << std::endl;
-      std::cout << "Speed: " << py::str(speed).cast<std::string>() << std::endl;
-      if (!boxes.is_none()) {
-        auto box_list =
-            boxes.attr("xyxy")
-                .cast<py::list>(); // Example of accessing box coordinates
-        for (size_t i = 0; i < py::len(box_list); ++i) {
-          py::object box = box_list[i];
-          py::object conf_tensor = boxes.attr("conf");
-          if (conf_tensor[py::int_(i)].cast<float>() < 0.8) {
-            continue;
-          }
-
-          std::cout << "Box: " << py::str(box).cast<std::string>() << std::endl;
-          std::cout << "Confidence: "
-                    << py::str(conf_tensor[py::int_(i)]).cast<std::string>()
-                    << std::endl;
-
-          // Extract the box coordinates
-          auto numpy_array =
-              box_list[py::int_(0)].attr("cpu")().attr("numpy")();
-
-          // Access individual elements using NumPy indexing.
-          float x1 = numpy_array[py::int_(0)].cast<float>();
-          float y1 = numpy_array[py::int_(1)].cast<float>();
-          float x2 = numpy_array[py::int_(2)].cast<float>();
-          float y2 = numpy_array[py::int_(3)].cast<float>();
-
-          std::cout << "Bounding Box: (" << x1 << ", " << y1 << ") -> (" << x2
-                    << ", " << y2 << ")" << std::endl;
-
-          // Draw the box on the image
-          cv::rectangle(image, cv::Point(x1, y1), cv::Point(x2, y2),
-                        cv::Scalar(0, 255, 0), 2);
-
-          // Add the label to the image
-          py::object names = detection.attr("names");
-          std::cout << "Names: " << py::str(names).cast<std::string>()
-                    << std::endl;
-          py::object classes = boxes.attr("cls");
-          std::string label =
-              names[py::int_(classes[py::int_(i)])].cast<std::string>();
-          cv::putText(image, label, cv::Point(x1, y1 - 10),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
-
-          // Add the confidence to the image
-          std::cout << "Confidence: " << conf_tensor[py::int_(i)].cast<float>()
-                    << std::endl;
-          std::string confidence =
-              std::to_string(conf_tensor[py::int_(i)].cast<float>());
-          cv::putText(image, confidence, cv::Point(x1, y1 - 30),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
-
-          // Add the speed to the image
-          py::object speed_py = detection.attr("speed");
-          std::cout << "Speed: " << py::str(speed_py).cast<std::string>()
-                    << std::endl;
-          std::string speed = py::str(speed_py).cast<std::string>();
-          cv::putText(image, speed, cv::Point(x1, y1 - 50),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
-
-          // Add the timestamp to the image
-          cv::putText(image, timestamp_, cv::Point(x1, y1 - 70),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
-
-          // Display the image
-          cv::imshow("Image", image);
-          cv::waitKey(1);
-        }
-      }
-    }
-  }
 }
 
 nav_msgs::msg::OccupancyGrid::SharedPtr
@@ -396,7 +328,8 @@ std::string DatabaseExporter::generate_timestamp_string() {
   return oss.str();
 }
 
-bool DatabaseExporter::load_rtabmap_db() {
+Result DatabaseExporter::load_rtabmap_db() {
+  Result result;
   pcl::PointCloud<pcl::PointXYZRGB> cloud;
   rtabmap::ParametersMap parameters;
   rtabmap::DBDriver *driver = rtabmap::DBDriver::create();
@@ -406,7 +339,7 @@ bool DatabaseExporter::load_rtabmap_db() {
     driver->closeConnection(false);
   } else {
     std::cout << "Failed to open database" << std::endl;
-    return false;
+    return result;
   }
   delete driver;
   driver = 0;
@@ -429,7 +362,7 @@ bool DatabaseExporter::load_rtabmap_db() {
 
   if (optimizedPoses.size() == 0) {
     std::cout << "No optimized poses found" << std::endl;
-    return false;
+    return result;
   }
 
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr assembledCloud(
@@ -445,6 +378,8 @@ bool DatabaseExporter::load_rtabmap_db() {
   std::vector<int> rawViewpointIndices;
   std::map<int, rtabmap::Transform> rawViewpoints;
   int imagesExported = 0;
+
+  std::vector<cv::Mat> rgb_images;
   for (std::map<int, rtabmap::Transform>::iterator iter =
            optimizedPoses.lower_bound(1);
        iter != optimizedPoses.end(); ++iter) {
@@ -508,7 +443,7 @@ bool DatabaseExporter::load_rtabmap_db() {
 
     // saving images stuff
     if (!rgb.empty()) {
-      images_.push_back(rgb);
+      rgb_images.push_back(rgb);
       // save calibration per image
       // calibration can change over time, e.g. camera has auto focus
       camera_models_.push_back(models);
@@ -620,10 +555,20 @@ bool DatabaseExporter::load_rtabmap_db() {
     rtabmap_cloud_ = assembledCloud;
   }
 
+  // extract the camera poses
+  std::vector<rtabmap::Transform> camera_poses;
+
+  for (std::map<int, rtabmap::Transform>::iterator iter =
+           optimizedPoses.lower_bound(1);
+       iter != optimizedPoses.end(); ++iter) {
+    camera_poses.push_back(iter->second);
+  }
+
   // create a point cloud from the rtabmap cloud
   pcl::PCLPointCloud2::Ptr cloud2(new pcl::PCLPointCloud2);
   pcl::toPCLPointCloud2(*rtabmap_cloud_, *cloud2);
 
+  int n = 0;
   for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
            cameraModels.begin();
        iter != cameraModels.end(); ++iter) {
@@ -632,12 +577,12 @@ bool DatabaseExporter::load_rtabmap_db() {
     cv::Mat depth(iter->second.front().imageHeight(),
                   iter->second.front().imageWidth() * iter->second.size(),
                   CV_32FC1);
+    std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
     for (size_t i = 0; i < iter->second.size(); ++i) {
-      auto depth_image = project_cloud_to_camera(
+      depth_map = project_cloud_to_camera(
           iter->second.at(i).imageSize(), iter->second.at(i).K(), cloud2,
           robotPoses.at(iter->first) * iter->second.at(i).localTransform());
-      depth_images_.push_back(depth_image);
-      depth_image.first.copyTo(
+      depth_map.first.copyTo(
           depth(cv::Range::all(),
                 cv::Range(i * iter->second.front().imageWidth(),
                           (i + 1) * iter->second.front().imageWidth())));
@@ -652,9 +597,10 @@ bool DatabaseExporter::load_rtabmap_db() {
       }
     }
 
-    depths_.push_back(frame);
-
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
+    mapping_data_.push_back({rgb_images.at(n), depth_map.first,
+                             camera_poses.at(n), depth_map.second});
+    n++;
   }
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloudWithoutNormals(
@@ -852,7 +798,195 @@ bool DatabaseExporter::load_rtabmap_db() {
   sensor_msgs::msg::PointCloud2 cloud_msg;
   pcl::toROSMsg(cloud, cloud_msg);
 
-  return true;
+  result.success = true;
+  result.timestamp = timestamp_;
+  result.cloud = rtabmap_cloud_;
+  result.mapping_data = mapping_data_;
+
+  std::cout << "Finished loading database" << std::endl;
+  std::cout << "Number of images: " << mapping_data_.size() << std::endl;
+  std::cout << "Number of points in cloud: " << rtabmap_cloud_->size()
+            << std::endl;
+  std::cout << "Timestamp: " << timestamp_ << std::endl;
+  std::cout << "Images: " << mapping_data_.size() << std::endl;
+
+  return result;
+}
+
+void semantic_mapping(
+    py::object &net, DatabaseExporter &exporter,
+    std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+                         std::map<std::pair<int, int>, int>>> &mapping_data,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, std::string &timestamp) {
+  // start by getting the detections, and creating some pretty images
+  std::vector<std::tuple<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointXYZ,
+                         std::string>>
+      object_clouds;
+  std::random_device rd;
+  std::mt19937 gen;
+  std::uniform_int_distribution<> dis;
+  gen.seed(rd());
+  for (const auto &frame : mapping_data) {
+    cv::Mat rgb = std::get<0>(frame);
+    cv::Mat depth = std::get<1>(frame);
+    rtabmap::Transform pose = std::get<2>(frame);
+    std::map<std::pair<int, int>, int> pixel_to_point_map = std::get<3>(frame);
+    py::array np_array = exporter.mat_to_numpy(rgb);
+    py::list detections = net.attr("predict")(np_array);
+
+    std::vector<std::pair<std::string, BoundingBox>> bounding_boxes;
+    std::cout << "Detections: " << detections.size() << std::endl;
+    for (auto detection : detections) {
+      py::object boxes = detection.attr("boxes");
+      py::object names = detection.attr("names");
+      py::object speed = detection.attr("speed");
+      if (!boxes.is_none()) {
+        auto box_list =
+            boxes.attr("xyxy")
+                .cast<py::list>(); // Example of accessing box coordinates
+        for (size_t i = 0; i < py::len(box_list); ++i) {
+          py::object box = box_list[i];
+          py::object conf_tensor = boxes.attr("conf");
+          if (conf_tensor[py::int_(i)].cast<float>() < 0.8) {
+            continue;
+          }
+
+          // Extract the box coordinates
+          auto numpy_array =
+              box_list[py::int_(0)].attr("cpu")().attr("numpy")();
+
+          // Access individual elements using NumPy indexing.
+          int x1 = numpy_array[py::int_(0)].cast<int>();
+          int y1 = numpy_array[py::int_(1)].cast<int>();
+          int x2 = numpy_array[py::int_(2)].cast<int>();
+          int y2 = numpy_array[py::int_(3)].cast<int>();
+
+          // Draw the box on the image
+          cv::rectangle(rgb, cv::Point(x1, y1), cv::Point(x2, y2),
+                        cv::Scalar(0, 255, 0), 2);
+
+          // Add the label to the image
+          py::object names = detection.attr("names");
+          py::object classes = boxes.attr("cls");
+          std::string label =
+              names[py::int_(classes[py::int_(i)])].cast<std::string>();
+          cv::putText(rgb, label, cv::Point(x1, y1 - 10),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // add the bounding box with the label to the list for later
+          bounding_boxes.push_back({label, BoundingBox(x1, y1, x2, y2)});
+
+          // Add the confidence to the image
+          std::string confidence =
+              std::to_string(conf_tensor[py::int_(i)].cast<float>());
+          cv::putText(rgb, confidence, cv::Point(x1, y1 - 30),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Add the speed to the image
+          py::object speed_py = detection.attr("speed");
+          std::string speed = py::str(speed_py).cast<std::string>();
+          cv::putText(rgb, speed, cv::Point(x1, y1 - 50),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Add the timestamp to the image
+          cv::putText(rgb, timestamp, cv::Point(x1, y1 - 70),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Display the image
+          cv::imshow("Image", rgb);
+          cv::waitKey(1);
+        }
+      }
+    }
+    std::cout << "Bounding boxes: " << bounding_boxes.size() << std::endl;
+    for (const auto &elem : bounding_boxes) {
+      std::string label = elem.first;
+      BoundingBox box = elem.second;
+      int r = dis(gen);
+      int g = dis(gen);
+      int b = dis(gen);
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud(
+          new pcl::PointCloud<pcl::PointXYZRGB>);
+      pcl::PointXYZRGB closest_point;
+      // figure out what the closest point in the pointcloud is to the camera
+      for (int y = box.y1; y < box.y2; ++y) {
+        for (int x = box.x1; x < box.x2; ++x) {
+          if (pixel_to_point_map.find(std::make_pair(y, x)) !=
+              pixel_to_point_map.end()) {
+            int index = pixel_to_point_map[std::make_pair(y, x)];
+            pcl::PointXYZRGB point = cloud->points[index];
+
+            if (object_cloud->empty()) {
+              closest_point = point;
+            }
+
+            float l2 = (point.x - pose.x()) * (point.x - pose.x()) +
+                       (point.y - pose.y()) * (point.y - pose.y()) +
+                       (point.z - pose.z()) * (point.z - pose.z());
+
+            float l2_closest =
+                (closest_point.x - pose.x()) * (closest_point.x - pose.x()) +
+                (closest_point.y - pose.y()) * (closest_point.y - pose.y()) +
+                (closest_point.z - pose.z()) * (closest_point.z - pose.z());
+
+            if (l2 < l2_closest) {
+              closest_point = point;
+            }
+
+            point.r = r;
+            point.g = g;
+            point.b = b;
+            object_cloud->push_back(point);
+          }
+        }
+      }
+
+      // filter out the points that are too far away
+      for (const auto &point : object_cloud->points) {
+        float l2 = (point.x - closest_point.x) * (point.x - closest_point.x) +
+                   (point.y - closest_point.y) * (point.y - closest_point.y) +
+                   (point.z - closest_point.z) * (point.z - closest_point.z);
+
+        if (l2 < 0.5) {
+          object_cloud->push_back(point);
+        }
+      }
+
+      pcl::PointXYZ centroid;
+      for (const auto &point : object_cloud->points) {
+        centroid.x += point.x;
+        centroid.y += point.y;
+        centroid.z += point.z;
+      }
+
+      centroid.x /= object_cloud->size();
+      centroid.y /= object_cloud->size();
+      centroid.z /= object_cloud->size();
+
+      object_clouds.push_back({object_cloud, centroid, label});
+      std::cout << "pose: " << pose << std::endl;
+    }
+  }
+  std::cout << "Object clouds: " << object_clouds.size() << std::endl;
+  std::unordered_map<std::string, int> object_counts;
+  for (const auto &cloud : object_clouds) {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud = std::get<0>(cloud);
+    std::cout << "Object cloud size: " << object_cloud->size() << std::endl;
+    std::cout << "Centroid: " << std::get<1>(cloud) << std::endl;
+    std::cout << "Label: " << std::get<2>(cloud) << std::endl;
+    // pcl::PointXYZ centroid = std::get<1>(cloud);
+    std::string label = std::get<2>(cloud);
+    if (object_counts.find(label) == object_counts.end()) {
+      object_counts[label] = 1;
+    } else {
+      object_counts[label]++;
+    }
+    std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp +
+                       "/semantic_objects/" + label +
+                       std::to_string(object_counts[label]) + ".pcd";
+    std::cout << "Saving object cloud to: " << path << std::endl;
+    pcl::io::savePCDFileBinary(path, *object_cloud);
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -877,9 +1011,10 @@ int main(int argc, char *argv[]) {
     }
 
     DatabaseExporter extractor(rtabmap_database_name, model_name);
-    extractor.load_rtabmap_db();
+    Result result = extractor.load_rtabmap_db();
 
-    extractor.get_detections(net);
+    semantic_mapping(net, extractor, result.mapping_data, result.cloud,
+                     result.timestamp);
 
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;
