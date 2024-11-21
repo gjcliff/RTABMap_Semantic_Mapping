@@ -16,7 +16,7 @@ cloud as a Point Cloud Library (.pcl) file, a 2D occupancy grid representation
 of the point cloud, and rgb and emulated depth images for each pose in the pose
 graph.
 
-The executable is meant to be run with two arguments  
+The executable is meant to be run with two arguments
 **RTABMap Database File (.db):**
 * The name of a RTABMap database file (your_file.db) that is inside the ```databases```
 directory of this repo. Copy your database files there for them to be processed.
@@ -43,7 +43,7 @@ sudo chown -R your_user:your_user output/*
 ### Docker
 ```bash
 docker build -t rtabmap_dnn .
-docker run --rm -v ./output:/app/output rtabmap_dnn <name_of_db_file>
+docker run --rm -v -e DISPLAY=$DISPLAY ./output:/app/output -v /tmp/.X11-unix:/tmp/.X11-unix rtabmap_dnn <name_of_db_file>
 ```
 or
 ```bash
@@ -54,7 +54,7 @@ I haven't finished the semantic mapping portion of this package yet and object
 recognition doesn't work. It will work by Tuesday, 11/19/2024.
 
 ### Run on your host system
-Make sure that you have ros2 humble installed on your system:  
+Make sure that you have ros2 humble installed on your system:
 https://docs.ros.org/en/humble/Installation.html
 
 First source the ros2 humble setup file:

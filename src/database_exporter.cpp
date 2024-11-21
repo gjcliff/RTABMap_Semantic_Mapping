@@ -145,18 +145,80 @@ void DatabaseExporter::get_detections(py::object &net) {
     py::array np_array = mat_to_numpy(image);
     py::list detections = net.attr("predict")(np_array);
     for (auto detection : detections) {
-      std::cout << py::str(detection).cast<std::string>() << std::endl;
+      std::cout << "Detection: " << py::str(detection).cast<std::string>()
+                << std::endl;
       py::object boxes = detection.attr("boxes");
       py::object names = detection.attr("names");
       py::object speed = detection.attr("speed");
       std::cout << "Boxes: " << py::str(boxes).cast<std::string>() << std::endl;
       std::cout << "Speed: " << py::str(speed).cast<std::string>() << std::endl;
       if (!boxes.is_none()) {
-        auto box_list = boxes.attr("xyxy").cast<py::list>(); // Example of accessing box coordinates
-        for (auto box : box_list) {
-            std::cout << "Box: " << py::str(box).cast<std::string>() << std::endl;
+        auto box_list =
+            boxes.attr("xyxy")
+                .cast<py::list>(); // Example of accessing box coordinates
+        for (size_t i = 0; i < py::len(box_list); ++i) {
+          py::object box = box_list[i];
+          py::object conf_tensor = boxes.attr("conf");
+          if (conf_tensor[py::int_(i)].cast<float>() < 0.8) {
+            continue;
+          }
+
+          std::cout << "Box: " << py::str(box).cast<std::string>() << std::endl;
+          std::cout << "Confidence: "
+                    << py::str(conf_tensor[py::int_(i)]).cast<std::string>()
+                    << std::endl;
+
+          // Extract the box coordinates
+          auto numpy_array =
+              box_list[py::int_(0)].attr("cpu")().attr("numpy")();
+
+          // Access individual elements using NumPy indexing.
+          float x1 = numpy_array[py::int_(0)].cast<float>();
+          float y1 = numpy_array[py::int_(1)].cast<float>();
+          float x2 = numpy_array[py::int_(2)].cast<float>();
+          float y2 = numpy_array[py::int_(3)].cast<float>();
+
+          std::cout << "Bounding Box: (" << x1 << ", " << y1 << ") -> (" << x2
+                    << ", " << y2 << ")" << std::endl;
+
+          // Draw the box on the image
+          cv::rectangle(image, cv::Point(x1, y1), cv::Point(x2, y2),
+                        cv::Scalar(0, 255, 0), 2);
+
+          // Add the label to the image
+          py::object names = detection.attr("names");
+          std::cout << "Names: " << py::str(names).cast<std::string>()
+                    << std::endl;
+          py::object classes = boxes.attr("cls");
+          std::string label = names[py::int_(classes[py::int_(i)])].cast<std::string>();
+          cv::putText(image, label, cv::Point(x1, y1 - 10),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Add the confidence to the image
+          std::cout << "Confidence: "
+                    << conf_tensor[py::int_(i)].cast<float>() << std::endl;
+          std::string confidence =
+              std::to_string(conf_tensor[py::int_(i)].cast<float>());
+          cv::putText(image, confidence, cv::Point(x1, y1 - 30),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Add the speed to the image
+          py::object speed_py = detection.attr("speed");
+          std::cout << "Speed: " << py::str(speed_py).cast<std::string>()
+                    << std::endl;
+          std::string speed = py::str(speed_py).cast<std::string>();
+          cv::putText(image, speed, cv::Point(x1, y1 - 50),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Add the timestamp to the image
+          cv::putText(image, timestamp_, cv::Point(x1, y1 - 70),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // Display the image
+          cv::imshow("Image", image);
+          cv::waitKey(1);
         }
-    }
+      }
     }
   }
 }

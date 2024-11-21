@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y \
     ros-humble-navigation2 \
     ros-humble-pcl-conversions \
     libpcl-dev && \
+    # libgtk2.0-dev && \
+    # libgtk-3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 RUN git clone https://github.com/introlab/rtabmap.git \
