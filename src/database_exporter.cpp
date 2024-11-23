@@ -1,7 +1,4 @@
 #include "database_exporter.hpp"
-#include "pylifecycle.h"
-#include <pybind11/attr.h>
-#include <pybind11/embed.h>
 
 DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
                                    std::string model_name)
@@ -97,19 +94,10 @@ DatabaseExporter::~DatabaseExporter() {
 
     // save depth images
     cv::Mat depthExported = std::get<1>(data);
-    std::string ext;
     std::string depth_path =
-        path + "/depth/" + std::to_string(depthImagesExported);
-    if (depthExported.type() != CV_16UC1 && depthExported.type() != CV_32FC1) {
-      ext = ".jpg";
-    } else {
-      ext = ".png";
-      if (depthExported.type() == CV_32FC1) {
-        depthExported = rtabmap::util2d::cvtDepthFromFloat(depthExported);
-      }
-    }
+        path + "/depth/" + std::to_string(depthImagesExported) + ".jpg";
 
-    cv::imwrite(depth_path + ext, depthExported);
+    cv::imwrite(depth_path, depthExported);
     ++depthImagesExported;
   }
 
@@ -879,6 +867,8 @@ void semantic_mapping(
           // Add the confidence to the image
           std::string confidence =
               std::to_string(conf_tensor[py::int_(i)].cast<float>());
+          std::cout << "label: " << label << ", confidence: " << confidence
+                    << std::endl;
           cv::putText(rgb, confidence, cv::Point(x1, y1 - 30),
                       cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
 
@@ -963,8 +953,24 @@ void semantic_mapping(
       centroid.y /= object_cloud->size();
       centroid.z /= object_cloud->size();
 
-      object_clouds.push_back({object_cloud, centroid, label});
-      std::cout << "pose: " << pose << std::endl;
+      bool include = true;
+      for (const auto &elem : object_clouds) {
+        pcl::PointXYZ current = std::get<1>(elem);
+        std::string current_label = std::get<2>(elem);
+        float l2 = (current.x - centroid.x) * (current.x - centroid.x) +
+                   (current.y - centroid.y) * (current.y - centroid.y) +
+                   (current.z - centroid.z) * (current.z - centroid.z);
+        if (l2 < 0.1) {
+          std::cout << "L2: " << l2 << std::endl;
+          std::cout << "current label: " << current_label << std::endl;
+          std::cout << "label: " << label << std::endl;
+          include = false;
+        }
+      }
+
+      if (include) {
+        object_clouds.push_back({object_cloud, centroid, label});
+      }
     }
   }
   std::cout << "Object clouds: " << object_clouds.size() << std::endl;
