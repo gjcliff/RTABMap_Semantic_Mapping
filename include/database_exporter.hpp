@@ -68,6 +68,12 @@ public:
   // @return The numpy array
   py::array mat_to_numpy(const cv::Mat &mat);
 
+  // @brief Calculate the centroid of a 3D pointcloud
+  // @param cloud The pointcloud
+  // @return The centroid
+  pcl::PointXYZ
+  calculate_centroid(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+
   // @brief Load the rtabmap database
   // @return The result of the operation
   Result load_rtabmap_db();

@@ -801,6 +801,22 @@ Result DatabaseExporter::load_rtabmap_db() {
   return result;
 }
 
+pcl::PointXYZ DatabaseExporter::calculate_centroid(
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+  pcl::PointXYZ centroid;
+  for (const auto &point : cloud->points) {
+    centroid.x += point.x;
+    centroid.y += point.y;
+    centroid.z += point.z;
+  }
+
+  centroid.x /= cloud->size();
+  centroid.y /= cloud->size();
+  centroid.z /= cloud->size();
+
+  return centroid;
+}
+
 void semantic_mapping(
     py::object &net, DatabaseExporter &exporter,
     std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
@@ -808,8 +824,8 @@ void semantic_mapping(
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, std::string &timestamp) {
   // start by getting the detections, and creating some pretty images
   std::vector<std::tuple<pcl::PointCloud<pcl::PointXYZRGB>::Ptr, pcl::PointXYZ,
-                         std::string>>
-      object_clouds;
+                         std::string, float>>
+      object_clouds; // cloud, closest point, label, confidence
   std::random_device rd;
   std::mt19937 gen;
   std::uniform_int_distribution<> dis;
@@ -822,7 +838,7 @@ void semantic_mapping(
     py::array np_array = exporter.mat_to_numpy(rgb);
     py::list detections = net.attr("predict")(np_array);
 
-    std::vector<std::pair<std::string, BoundingBox>> bounding_boxes;
+    std::vector<std::tuple<std::string, float, BoundingBox>> bounding_boxes;
     std::cout << "Detections: " << detections.size() << std::endl;
     for (auto detection : detections) {
       py::object boxes = detection.attr("boxes");
@@ -861,16 +877,16 @@ void semantic_mapping(
           cv::putText(rgb, label, cv::Point(x1, y1 - 10),
                       cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
 
-          // add the bounding box with the label to the list for later
-          bounding_boxes.push_back({label, BoundingBox(x1, y1, x2, y2)});
-
           // Add the confidence to the image
-          std::string confidence =
-              std::to_string(conf_tensor[py::int_(i)].cast<float>());
+          float confidence = conf_tensor[py::int_(i)].cast<float>();
           std::cout << "label: " << label << ", confidence: " << confidence
                     << std::endl;
-          cv::putText(rgb, confidence, cv::Point(x1, y1 - 30),
+          cv::putText(rgb, std::to_string(confidence), cv::Point(x1, y1 - 30),
                       cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+
+          // add the bounding box with the label to the list for later
+          bounding_boxes.push_back(
+              {label, confidence, BoundingBox(x1, y1, x2, y2)});
 
           // Add the speed to the image
           py::object speed_py = detection.attr("speed");
@@ -890,8 +906,9 @@ void semantic_mapping(
     }
     std::cout << "Bounding boxes: " << bounding_boxes.size() << std::endl;
     for (const auto &elem : bounding_boxes) {
-      std::string label = elem.first;
-      BoundingBox box = elem.second;
+      std::string label = std::get<0>(elem);
+      float conf = std::get<1>(elem);
+      BoundingBox box = std::get<2>(elem);
       int r = dis(gen);
       int g = dis(gen);
       int b = dis(gen);
@@ -899,6 +916,7 @@ void semantic_mapping(
           new pcl::PointCloud<pcl::PointXYZRGB>);
       pcl::PointXYZRGB closest_point;
       // figure out what the closest point in the pointcloud is to the camera
+      // and add the point to the object cloud
       for (int y = box.y1; y < box.y2; ++y) {
         for (int x = box.x1; x < box.x2; ++x) {
           if (pixel_to_point_map.find(std::make_pair(y, x)) !=
@@ -931,7 +949,8 @@ void semantic_mapping(
         }
       }
 
-      // filter out the points that are too far away
+      // filter out the points that are too far away from the closest point to
+      // the camera
       for (const auto &point : object_cloud->points) {
         float l2 = (point.x - closest_point.x) * (point.x - closest_point.x) +
                    (point.y - closest_point.y) * (point.y - closest_point.y) +
@@ -942,21 +961,18 @@ void semantic_mapping(
         }
       }
 
-      pcl::PointXYZ centroid;
-      for (const auto &point : object_cloud->points) {
-        centroid.x += point.x;
-        centroid.y += point.y;
-        centroid.z += point.z;
-      }
+      // calculate the centroid of the object's pointcloud
+      pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
 
-      centroid.x /= object_cloud->size();
-      centroid.y /= object_cloud->size();
-      centroid.z /= object_cloud->size();
-
-      bool include = true;
+      // figure out if we've already seen this object before, and if we have
+      // then add its points to the pointcloud, recalculate the centroid, and
+      // update the label and confidence with the highest confidence value.
       for (const auto &elem : object_clouds) {
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr current_cloud =
+            std::get<0>(elem);
         pcl::PointXYZ current = std::get<1>(elem);
         std::string current_label = std::get<2>(elem);
+        float current_conf = std::get<3>(elem);
         float l2 = (current.x - centroid.x) * (current.x - centroid.x) +
                    (current.y - centroid.y) * (current.y - centroid.y) +
                    (current.z - centroid.z) * (current.z - centroid.z);
@@ -964,34 +980,35 @@ void semantic_mapping(
           std::cout << "L2: " << l2 << std::endl;
           std::cout << "current label: " << current_label << std::endl;
           std::cout << "label: " << label << std::endl;
-          include = false;
+          *object_cloud += *current_cloud;
+          centroid = exporter.calculate_centroid(object_cloud);
+          label = conf > current_conf ? label : current_label;
+          conf = conf > current_conf ? conf : current_conf;
         }
-      }
 
-      if (include) {
-        object_clouds.push_back({object_cloud, centroid, label});
+        object_clouds.push_back({object_cloud, centroid, label, conf});
       }
     }
-  }
-  std::cout << "Object clouds: " << object_clouds.size() << std::endl;
-  std::unordered_map<std::string, int> object_counts;
-  for (const auto &cloud : object_clouds) {
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud = std::get<0>(cloud);
-    std::cout << "Object cloud size: " << object_cloud->size() << std::endl;
-    std::cout << "Centroid: " << std::get<1>(cloud) << std::endl;
-    std::cout << "Label: " << std::get<2>(cloud) << std::endl;
-    // pcl::PointXYZ centroid = std::get<1>(cloud);
-    std::string label = std::get<2>(cloud);
-    if (object_counts.find(label) == object_counts.end()) {
-      object_counts[label] = 1;
-    } else {
-      object_counts[label]++;
+    std::cout << "Object clouds: " << object_clouds.size() << std::endl;
+    std::unordered_map<std::string, int> object_counts;
+    for (const auto &cloud : object_clouds) {
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud = std::get<0>(cloud);
+      std::cout << "Object cloud size: " << object_cloud->size() << std::endl;
+      std::cout << "Centroid: " << std::get<1>(cloud) << std::endl;
+      std::cout << "Label: " << std::get<2>(cloud) << std::endl;
+      // pcl::PointXYZ centroid = std::get<1>(cloud);
+      std::string label = std::get<2>(cloud);
+      if (object_counts.find(label) == object_counts.end()) {
+        object_counts[label] = 1;
+      } else {
+        object_counts[label]++;
+      }
+      std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp +
+                         "/semantic_objects/" + label +
+                         std::to_string(object_counts[label]) + ".pcd";
+      std::cout << "Saving object cloud to: " << path << std::endl;
+      pcl::io::savePCDFileBinary(path, *object_cloud);
     }
-    std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp +
-                       "/semantic_objects/" + label +
-                       std::to_string(object_counts[label]) + ".pcd";
-    std::cout << "Saving object cloud to: " << path << std::endl;
-    pcl::io::savePCDFileBinary(path, *object_cloud);
   }
 }
 
