@@ -1,4 +1,5 @@
 #include "database_exporter.hpp"
+#include <rtabmap/core/Rtabmap.h>
 
 DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
                                    std::string model_name)
@@ -76,6 +77,7 @@ DatabaseExporter::~DatabaseExporter() {
 
   // save the occupancy grid
   std::string grid_path = path + "/grid/" + timestamp_;
+  std::cout << "occupancy grid size: " << rtabmap_cloud_->points.size() << std::endl;
   rtabmap_occupancy_grid_ = point_cloud_to_occupancy_grid(rtabmap_cloud_);
   nav2_map_server::SaveParameters save_params;
   save_params.map_file_name = grid_path;
@@ -365,7 +367,6 @@ Result DatabaseExporter::load_rtabmap_db() {
   std::map<int, cv::Mat> cameraDepths;
   std::vector<int> rawViewpointIndices;
   std::map<int, rtabmap::Transform> rawViewpoints;
-  int imagesExported = 0;
 
   std::vector<cv::Mat> rgb_images;
   for (std::map<int, rtabmap::Transform>::iterator iter =
@@ -385,11 +386,11 @@ Result DatabaseExporter::load_rtabmap_db() {
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloudI;
     if (node.getWeight() != -1) {
-      int decimation = 4;
-      int maxRange = 4.0;
+      int decimation = 1;
+      int maxRange = 100.0;
       int minRange = 0.0;
       float noiseRadius = 0.0f;
-      int noiseMinNeighbors = 5;
+      int noiseMinNeighbors = 0;
       bool exportImages = true;
       bool texture = true;
       cv::Mat tmpDepth;
@@ -406,10 +407,10 @@ Result DatabaseExporter::load_rtabmap_db() {
                   << " doesn't have scan data, empty cloud is created."
                   << std::endl;
       }
-      if (decimation > 1 || minRange > 0.0f || maxRange) {
-        scan = rtabmap::util3d::commonFiltering(scan, decimation, minRange,
+      // if (decimation > 1 || minRange > 0.0f || maxRange) {
+      scan = rtabmap::util3d::commonFiltering(scan, decimation, minRange,
                                                 maxRange);
-      }
+      // }
       if (scan.hasRGB()) {
         cloud = rtabmap::util3d::laserScanToPointCloudRGB(
             scan, scan.localTransform());
@@ -537,11 +538,9 @@ Result DatabaseExporter::load_rtabmap_db() {
                                            : (int)assembledCloudI->size())
               << " points)." << std::endl;
 
-    if (imagesExported > 0)
-      std::cout << "Exported " << imagesExported << " images" << std::endl;
-
-    rtabmap_cloud_ = assembledCloud;
   }
+
+  rtabmap_cloud_ = assembledCloud;
 
   // extract the camera poses
   std::vector<rtabmap::Transform> camera_poses;
@@ -793,7 +792,7 @@ Result DatabaseExporter::load_rtabmap_db() {
 
   std::cout << "Finished loading database" << std::endl;
   std::cout << "Number of images: " << mapping_data_.size() << std::endl;
-  std::cout << "Number of points in cloud: " << rtabmap_cloud_->size()
+  std::cout << "Number of points in cloud: " << rtabmap_cloud_->points.size()
             << std::endl;
   std::cout << "Timestamp: " << timestamp_ << std::endl;
   std::cout << "Images: " << mapping_data_.size() << std::endl;

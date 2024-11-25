@@ -43,7 +43,12 @@ sudo chown -R your_user:your_user output/*
 ### Docker
 ```bash
 docker build -t rtabmap_dnn .
-docker run --rm -v -e DISPLAY=$DISPLAY ./output:/app/output -v /tmp/.X11-unix:/tmp/.X11-unix rtabmap_dnn <name_of_db_file>
+docker run --rm -e DISPLAY=$DISPLAY \
+    -v ./output:/app/output \
+    -v /etc/localtime:/etc/localtime:ro \
+    -v /etc/timezone:/etc/timezone:ro \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    rtabmap_dnn <name_of_db_file>
 ```
 or
 ```bash
