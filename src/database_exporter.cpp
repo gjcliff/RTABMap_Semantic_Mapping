@@ -601,7 +601,9 @@ Result DatabaseExporter::load_rtabmap_db() {
       for (int x = 0; x < depth.cols; ++x) {
         if (depth.at<float>(y, x) > 0.0f) // Valid depth
         {
-          cv::circle(frame, cv::Point(x, y), 3, cv::Scalar(0, 255, 0), -1);
+          cv::Vec3b color = rgb_images.at(n).at<cv::Vec3b>(y, x);
+          cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
+          cv::circle(frame, cv::Point(x, y), 3, circle_color, -1);
         }
       }
     }
@@ -862,7 +864,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud(
       new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::PointXYZRGB closest_point;
-  float l2_closest;
+  float l2_closest = 0.0;
   // figure out what the closest point in the pointcloud is to the camera
   // and add the point to the object cloud
   for (int y = box.y1; y < box.y2; ++y) {
