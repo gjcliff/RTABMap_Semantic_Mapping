@@ -17,27 +17,37 @@
 
 #include <nav2_map_server/map_io.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
-#include <pcl/cloud_iterator.h>
-#include <pcl/common/centroid.h>
-#include <pcl/filters/radius_outlier_removal.h>
-#include <pcl/filters/statistical_outlier_removal.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include "pcl/io/pcd_io.h"
 #include <pcl/impl/point_types.hpp>
 #include <pcl/point_cloud.h>
+#include <pcl/cloud_iterator.h>
+#include <pcl/common/centroid.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/radius_outlier_removal.h>
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl_conversions/pcl_conversions.h>
 
 #include <Python.h>
 #include <pybind11/embed.h>
 #include <pybind11/numpy.h>
+
+#include <yaml-cpp/yaml.h>
 
 #include <filesystem>
 #include <iostream>
 #include <random>
 
 namespace py = pybind11;
+
+struct MouseData {
+    cv::Point start_point;
+    cv::Point end_point;
+    cv::Rect bounding_box;
+    bool drawing = false;
+    bool finished = false;
+};
 
 struct Object {
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;

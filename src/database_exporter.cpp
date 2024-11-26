@@ -64,6 +64,10 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     std::cout << "Failed to create objects directory" << std::endl;
     return;
   }
+  if (!std::filesystem::create_directory(path + "/landmarks")) {
+    std::cout << "Failed to create objects directory" << std::endl;
+    return;
+  }
 }
 
 DatabaseExporter::~DatabaseExporter() {
@@ -239,7 +243,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   std::cout << "Min point: " << min_point_iter->z << std::endl;
   pass.setInputCloud(radius_cloud);
   pass.setFilterFieldName("z");
-  pass.setFilterLimits(min_point_iter->z + 0.4, FLT_MAX); // adjust based on the scene
+  pass.setFilterLimits(min_point_iter->z + 0.4,
+                       FLT_MAX); // adjust based on the scene
   pass.filter(*pass_cloud);
   pass_cloud->width = pass_cloud->points.size();
 
@@ -268,7 +273,7 @@ DatabaseExporter::project_cloud_to_camera(
   std::map<std::pair<int, int>, int> pixel_to_point_map;
 
   pcl::MsgFieldMap field_map;
-  pcl::createMapping<pcl::PointXYZ>(cloud->fields, field_map);
+  pcl::createMapping<pcl::PointXYZRGB>(cloud->fields, field_map);
 
   int count = 0;
   if (field_map.size() == 1) {
@@ -276,7 +281,7 @@ DatabaseExporter::project_cloud_to_camera(
       const uint8_t *row_data = &cloud->data[row * cloud->row_step];
       for (uint32_t col = 0; col < (uint32_t)cloud->width; ++col) {
         const uint8_t *msg_data = row_data + col * cloud->point_step;
-        pcl::PointXYZ ptScan;
+        pcl::PointXYZRGB ptScan;
         memcpy(&ptScan, msg_data + field_map.front().serialized_offset,
                field_map.front().size);
         ptScan = rtabmap::util3d::transformPoint(ptScan, t);
@@ -816,7 +821,6 @@ Result DatabaseExporter::load_rtabmap_db() {
   std::cout << "Number of points in cloud: " << rtabmap_cloud_->points.size()
             << std::endl;
   std::cout << "Timestamp: " << timestamp_ << std::endl;
-  std::cout << "Images: " << mapping_data_.size() << std::endl;
 
   return result;
 }
@@ -841,7 +845,82 @@ pcl::PointXYZ DatabaseExporter::calculate_centroid(
   return centroid;
 }
 
-void semantic_mapping(
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
+    std::tuple<std::string, float, BoundingBox> bounding_box,
+    std::map<std::pair<int, int>, int> pixel_to_point_map,
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, rtabmap::Transform pose) {
+  std::random_device rd;
+  std::mt19937 gen;
+  std::uniform_int_distribution<> dis;
+  gen.seed(rd());
+
+  std::string label = std::get<0>(bounding_box);
+  BoundingBox box = std::get<2>(bounding_box);
+  int r = dis(gen);
+  int g = dis(gen);
+  int b = dis(gen);
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud(
+      new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::PointXYZRGB closest_point;
+  float l2_closest;
+  // figure out what the closest point in the pointcloud is to the camera
+  // and add the point to the object cloud
+  for (int y = box.y1; y < box.y2; ++y) {
+    for (int x = box.x1; x < box.x2; ++x) {
+      if (pixel_to_point_map.find(std::make_pair(y, x)) !=
+          pixel_to_point_map.end()) {
+        int index = pixel_to_point_map[std::make_pair(y, x)];
+        pcl::PointXYZRGB point = cloud->points[index];
+
+        if (object_cloud->empty()) {
+          closest_point = point;
+          l2_closest = (point.x - pose.x()) * (point.x - pose.x()) +
+                       (point.y - pose.y()) * (point.y - pose.y()) +
+                       (point.z - pose.z()) * (point.z - pose.z());
+        }
+
+        float l2 = (point.x - pose.x()) * (point.x - pose.x()) +
+                   (point.y - pose.y()) * (point.y - pose.y()) +
+                   (point.z - pose.z()) * (point.z - pose.z());
+
+        if (l2 < l2_closest) {
+          closest_point = point;
+          l2_closest = l2;
+        }
+
+        point.r = r;
+        point.g = g;
+        point.b = b;
+        object_cloud->push_back(point);
+      }
+    }
+  }
+  if (object_cloud->empty()) {
+    return object_cloud;
+  }
+
+  // filter out the points that are too far away from the closest point to
+  // the camera
+  float threshold = 1.0;
+  object_cloud->points.erase(
+      std::remove_if(
+          object_cloud->points.begin(), object_cloud->points.end(),
+          [&closest_point, threshold](const pcl::PointXYZRGB &point) {
+            float l2 = std::sqrt(std::pow(point.x - closest_point.x, 2) +
+                                 std::pow(point.y - closest_point.y, 2) +
+                                 std::pow(point.z - closest_point.z, 2));
+            return l2 > threshold;
+          }),
+      object_cloud->points.end());
+
+  object_cloud->width = object_cloud->points.size();
+  object_cloud->height = 1;
+
+  return object_cloud;
+}
+
+
+std::vector<Object> semantic_mapping(
     py::object &net, DatabaseExporter &exporter,
     std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
                          std::map<std::pair<int, int>, int>>> &mapping_data,
@@ -849,10 +928,6 @@ void semantic_mapping(
   // start by getting the detections, and creating some pretty images
   std::vector<Object> objects; // cloud, closest point, label, confidence
   std::unordered_map<std::string, int> object_counts;
-  std::random_device rd;
-  std::mt19937 gen;
-  std::uniform_int_distribution<> dis;
-  gen.seed(rd());
   for (const auto &frame : mapping_data) {
     cv::Mat rgb = std::get<0>(frame);
     cv::Mat depth = std::get<1>(frame);
@@ -929,65 +1004,9 @@ void semantic_mapping(
       std::string label = std::get<0>(elem);
       float conf = std::get<1>(elem);
       BoundingBox box = std::get<2>(elem);
-      int r = dis(gen);
-      int g = dis(gen);
-      int b = dis(gen);
-      pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud(
-          new pcl::PointCloud<pcl::PointXYZRGB>);
-      pcl::PointXYZRGB closest_point;
-      float l2_closest;
-      // figure out what the closest point in the pointcloud is to the camera
-      // and add the point to the object cloud
-      for (int y = box.y1; y < box.y2; ++y) {
-        for (int x = box.x1; x < box.x2; ++x) {
-          if (pixel_to_point_map.find(std::make_pair(y, x)) !=
-              pixel_to_point_map.end()) {
-            int index = pixel_to_point_map[std::make_pair(y, x)];
-            pcl::PointXYZRGB point = cloud->points[index];
-
-            if (object_cloud->empty()) {
-              closest_point = point;
-              l2_closest = (point.x - pose.x()) * (point.x - pose.x()) +
-                           (point.y - pose.y()) * (point.y - pose.y()) +
-                           (point.z - pose.z()) * (point.z - pose.z());
-            }
-
-            float l2 = (point.x - pose.x()) * (point.x - pose.x()) +
-                       (point.y - pose.y()) * (point.y - pose.y()) +
-                       (point.z - pose.z()) * (point.z - pose.z());
-
-            if (l2 < l2_closest) {
-              closest_point = point;
-              l2_closest = l2;
-            }
-
-            point.r = r;
-            point.g = g;
-            point.b = b;
-            object_cloud->push_back(point);
-          }
-        }
-      }
-      if (object_cloud->empty()) {
-        continue;
-      }
-
-      // filter out the points that are too far away from the closest point to
-      // the camera
-      float threshold = 1.0;
-      object_cloud->points.erase(
-          std::remove_if(
-              object_cloud->points.begin(), object_cloud->points.end(),
-              [&closest_point, threshold](const pcl::PointXYZRGB &point) {
-                float l2 = std::sqrt(std::pow(point.x - closest_point.x, 2) +
-                                     std::pow(point.y - closest_point.y, 2) +
-                                     std::pow(point.z - closest_point.z, 2));
-                return l2 > threshold;
-              }),
-          object_cloud->points.end());
-
-      object_cloud->width = object_cloud->points.size();
-      object_cloud->height = 1;
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud =
+          object_cloud_from_bounding_box(elem, pixel_to_point_map,
+                                         cloud, pose);
 
       // calculate the centroid of the object's pointcloud
       pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
@@ -1016,6 +1035,10 @@ void semantic_mapping(
         }
       }
     }
+    std::string file_path = std::string(PROJECT_PATH) + "/output/" + timestamp +
+                            "/landmarks/" + timestamp + ".yaml";
+    YAML::Node node;
+
     for (const auto &object : new_objects) {
       if (object.cloud->size() < 5) {
         continue;
@@ -1024,7 +1047,77 @@ void semantic_mapping(
                          "/objects/" + object.label +
                          std::to_string(object_counts[object.label]) + ".pcd";
       pcl::io::savePCDFileBinary(path, *object.cloud);
+
+      if (std::filesystem::exists(file_path)) {
+        node = YAML::LoadFile(file_path);
+      }
+
+      // Save the new landmark's name and coordinates
+      node[object.label + std::to_string(object_counts[object.label])]["x"] =
+          object.centroid.x;
+      node[object.label + std::to_string(object_counts[object.label])]["y"] =
+          object.centroid.y;
+
+      // Open the file for writing
+      std::ofstream file(file_path);
+
+      // Write to the file and close it
+      file << node;
+      file.close();
     }
+  }
+  return objects;
+}
+
+// Mouse callback function
+cv::Point start_point, end_point;
+bool drawing = false;
+cv::Mat image;
+
+void mouse_callback(int event, int x, int y, int, void *data) {
+  // Convert userdata (void*) back to MouseData*
+    MouseData* mouse_data = static_cast<MouseData*>(data);
+
+    switch (event) {
+        case cv::EVENT_LBUTTONDOWN: // Start drawing
+            mouse_data->drawing = true;
+            mouse_data->start_point = cv::Point(x, y);
+            mouse_data->bounding_box = cv::Rect(x, y, 0, 0); // Initialize
+            break;
+
+        case cv::EVENT_MOUSEMOVE: // Update rectangle as the user drags
+            if (mouse_data->drawing) {
+                int width = x - mouse_data->start_point.x;
+                int height = y - mouse_data->start_point.y;
+                mouse_data->bounding_box = cv::Rect(mouse_data->start_point.x, mouse_data->start_point.y, width, height);
+            }
+            break;
+
+        case cv::EVENT_LBUTTONUP: // Finish drawing
+            if (mouse_data->drawing) {
+                mouse_data->drawing = false;
+                mouse_data->finished = true;
+                int width = x - mouse_data->start_point.x;
+                int height = y - mouse_data->start_point.y;
+                mouse_data->bounding_box = cv::Rect(mouse_data->start_point.x, mouse_data->start_point.y, width, height);
+                std::cout << "Bounding box: " << mouse_data->bounding_box << std::endl;
+            }
+            break;
+    }
+}
+
+void manual_labeling(Result &result, std::vector<Object> &objects) {
+  for (const auto &frame : result.mapping_data) {
+    cv::Mat rgb = std::get<0>(frame);
+    cv::Mat depth = std::get<1>(frame);
+    rtabmap::Transform pose = std::get<2>(frame);
+    std::map<std::pair<int, int>, int> pixel_to_point_map = std::get<3>(frame);
+
+    // Display the image and ask the user for a bounding box
+    image = rgb;
+    cv::imshow("Image", rgb);
+    cv::setMouseCallback("Image", mouse_callback, nullptr);
+    cv::waitKey(0);
   }
 }
 
@@ -1052,8 +1145,10 @@ int main(int argc, char *argv[]) {
     DatabaseExporter extractor(rtabmap_database_name, model_name);
     Result result = extractor.load_rtabmap_db();
 
-    semantic_mapping(net, extractor, result.mapping_data, result.cloud,
-                     result.timestamp);
+    std::vector<Object> objects = semantic_mapping(
+        net, extractor, result.mapping_data, result.cloud, result.timestamp);
+
+    manual_labeling(result, objects);
 
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;
