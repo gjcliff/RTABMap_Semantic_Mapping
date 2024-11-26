@@ -219,13 +219,31 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> radius_outlier;
   radius_outlier.setInputCloud(sor_cloud);
   radius_outlier.setRadiusSearch(
-      0.5); // adjust based on spacing in the point cloud
+      0.2); // adjust based on spacing in the point cloud
   radius_outlier.setMinNeighborsInRadius(
-      3); // increase for more aggressive outlier removal
+      5); // increase for more aggressive outlier removal
   radius_outlier.filter(*radius_cloud);
   radius_cloud->width = radius_cloud->points.size();
 
-  return radius_cloud;
+  // find the lowest point in the pointcloud
+  auto min_point_iter = std::min_element(
+      radius_cloud->points.begin(), radius_cloud->points.end(),
+      [](const pcl::PointXYZRGB &lhs, const pcl::PointXYZRGB &rhs) {
+        return lhs.z < rhs.z;
+      });
+
+  // passthrough filter
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_cloud(
+      new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::PassThrough<pcl::PointXYZRGB> pass;
+  std::cout << "Min point: " << min_point_iter->z << std::endl;
+  pass.setInputCloud(radius_cloud);
+  pass.setFilterFieldName("z");
+  pass.setFilterLimits(min_point_iter->z + 0.4, FLT_MAX); // adjust based on the scene
+  pass.filter(*pass_cloud);
+  pass_cloud->width = pass_cloud->points.size();
+
+  return pass_cloud;
 }
 
 std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
