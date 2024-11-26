@@ -38,6 +38,13 @@
 
 namespace py = pybind11;
 
+struct Object {
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+  pcl::PointXYZ centroid;
+  std::string label;
+  float confidence;
+};
+
 struct Result {
   bool success = false;
   std::string timestamp = "";
