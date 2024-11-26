@@ -539,7 +539,7 @@ Result DatabaseExporter::load_rtabmap_db() {
               << " points)." << std::endl;
   }
 
-  pcl::copyPointCloud(*rtabmap_cloud_, *assembledCloud);
+  pcl::copyPointCloud(*assembledCloud, *rtabmap_cloud_);
 
   // extract the camera poses
   std::vector<rtabmap::Transform> camera_poses;
@@ -582,6 +582,9 @@ Result DatabaseExporter::load_rtabmap_db() {
         }
       }
     }
+
+    cv::imshow("Depth", frame);
+    cv::waitKey(30);
 
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
     mapping_data_.push_back({rgb_images.at(n), depth_map.first,
@@ -922,6 +925,7 @@ void semantic_mapping(
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud(
           new pcl::PointCloud<pcl::PointXYZRGB>);
       pcl::PointXYZRGB closest_point;
+      float l2_closest;
       // figure out what the closest point in the pointcloud is to the camera
       // and add the point to the object cloud
       std::cout << "Box: " << box.x1 << ", " << box.y1 << ", " << box.x2 << ", "
@@ -935,19 +939,18 @@ void semantic_mapping(
 
             if (object_cloud->empty()) {
               closest_point = point;
+              l2_closest = (point.x - pose.x()) * (point.x - pose.x()) +
+                           (point.y - pose.y()) * (point.y - pose.y()) +
+                           (point.z - pose.z()) * (point.z - pose.z());
             }
 
             float l2 = (point.x - pose.x()) * (point.x - pose.x()) +
                        (point.y - pose.y()) * (point.y - pose.y()) +
                        (point.z - pose.z()) * (point.z - pose.z());
 
-            float l2_closest =
-                (closest_point.x - pose.x()) * (closest_point.x - pose.x()) +
-                (closest_point.y - pose.y()) * (closest_point.y - pose.y()) +
-                (closest_point.z - pose.z()) * (closest_point.z - pose.z());
-
             if (l2 < l2_closest) {
               closest_point = point;
+              l2_closest = l2;
             }
 
             point.r = r;
@@ -957,32 +960,28 @@ void semantic_mapping(
           }
         }
       }
-
-      // filter out the points that are too far away from the closest point to
-      // the camera
-      for (const auto &point : object_cloud->points) {
-        float l2 = std::sqrt(
-            (point.x - closest_point.x) * (point.x - closest_point.x) +
-            (point.y - closest_point.y) * (point.y - closest_point.y) +
-            (point.z - closest_point.z) * (point.z - closest_point.z));
-
-        // std::cout << "l2: " << l2 << std::endl;
-        // std::cout << "closest point: " << closest_point.x << ", "
-        //           << closest_point.y << ", " << closest_point.z << std::endl;
-        // std::cout << "point: " << point.x << ", " << point.y << ", " <<
-        // point.z
-        //           << std::endl;
-        if (l2 < 5.0) {
-          object_cloud->push_back(point);
-          // std::cout << "Point: " << point.x << ", " << point.y << ", "
-          //           << point.z << std::endl;
-        }
-      }
-
-      // calculate the centroid of the object's pointcloud
       if (object_cloud->empty()) {
         continue;
       }
+
+      // filter out the points that are too far away from the closest point to
+      // the camera
+      float threshold = 1.0;
+      object_cloud->points.erase(
+          std::remove_if(
+              object_cloud->points.begin(), object_cloud->points.end(),
+              [&closest_point, threshold](const pcl::PointXYZRGB &point) {
+                float l2 = std::sqrt(std::pow(point.x - closest_point.x, 2) +
+                                     std::pow(point.y - closest_point.y, 2) +
+                                     std::pow(point.z - closest_point.z, 2));
+                return l2 > threshold;
+              }),
+          object_cloud->points.end());
+
+      object_cloud->width = object_cloud->points.size();
+      object_cloud->height = 1;
+
+      // calculate the centroid of the object's pointcloud
       pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
 
       // figure out if we've already seen this object before, and if we have
