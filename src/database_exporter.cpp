@@ -970,6 +970,9 @@ std::vector<Object> semantic_mapping(
           int x2 = numpy_array[py::int_(2)].cast<int>();
           int y2 = numpy_array[py::int_(3)].cast<int>();
 
+          // std::cout << "Box: " << x1 << ", " << y1 << ", " << x2 << ", " << y2
+          //           << std::endl;
+
           cv::Mat detection_frame = rgb.clone();
 
           // Draw the box on the image
@@ -992,8 +995,6 @@ std::vector<Object> semantic_mapping(
 
           // add the bounding box with the label to the list for later
           if (label == "chair" || label == "cup") {
-            std::cout << "Adding bounding box: " << label << std::endl;
-            std::cout << "Confidence: " << confidence << std::endl;
             bounding_boxes.push_back(
                 {label, confidence, BoundingBox(x1, y1, x2, y2)});
           }
@@ -1016,8 +1017,6 @@ std::vector<Object> semantic_mapping(
         }
       }
     }
-    std::cout << "bounding boxes: " << bounding_boxes.size()
-      << std::endl;
     std::vector<Object> new_objects;
     for (const auto &elem : bounding_boxes) {
       std::string label = std::get<0>(elem);
