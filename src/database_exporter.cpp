@@ -105,7 +105,7 @@ DatabaseExporter::~DatabaseExporter() {
     // save depth images
     cv::Mat depthExported = std::get<1>(data);
     std::string depth_path =
-        path + "/depth/" + std::to_string(depthImagesExported) + ".jpg";
+        path + "/depths/" + std::to_string(depthImagesExported) + ".jpg";
 
     cv::imwrite(depth_path, depthExported);
     ++depthImagesExported;
@@ -140,7 +140,7 @@ DatabaseExporter::~DatabaseExporter() {
     }
   }
   std::cout << "RGB Images exported: " << rgbImagesExported << std::endl;
-  std::cout << "Depth Images exported: " << rgbImagesExported << std::endl;
+  std::cout << "Depth Images exported: " << depthImagesExported << std::endl;
 }
 
 cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array) {
@@ -395,7 +395,7 @@ Result DatabaseExporter::load_rtabmap_db() {
   std::vector<int> rawViewpointIndices;
   std::map<int, rtabmap::Transform> rawViewpoints;
 
-  std::vector<cv::Mat> rgb_images;
+  std::map<int, cv::Mat> rgb_images;
   for (std::map<int, rtabmap::Transform>::iterator iter =
            optimizedPoses.lower_bound(1);
        iter != optimizedPoses.end(); ++iter) {
@@ -459,7 +459,7 @@ Result DatabaseExporter::load_rtabmap_db() {
 
     // saving images stuff
     if (!rgb.empty()) {
-      rgb_images.push_back(rgb);
+      rgb_images[iter->first] = rgb;
       // save calibration per image
       // calibration can change over time, e.g. camera has auto focus
       camera_models_.push_back(models);
@@ -569,58 +569,17 @@ Result DatabaseExporter::load_rtabmap_db() {
   pcl::copyPointCloud(*assembledCloud, *rtabmap_cloud_);
 
   // extract the camera poses
-  std::vector<rtabmap::Transform> camera_poses;
+  std::map<int, rtabmap::Transform> optimized_poses;
 
   for (std::map<int, rtabmap::Transform>::iterator iter =
            optimizedPoses.lower_bound(1);
        iter != optimizedPoses.end(); ++iter) {
-    camera_poses.push_back(iter->second);
+    optimized_poses[iter->first] = iter->second;
   }
 
   // create a point cloud from the rtabmap cloud
   pcl::PCLPointCloud2::Ptr cloud2(new pcl::PCLPointCloud2);
   pcl::toPCLPointCloud2(*rtabmap_cloud_, *cloud2);
-
-  int n = 0;
-  for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
-           cameraModels.begin();
-       iter != cameraModels.end(); ++iter) {
-    cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
-                                   iter->second.front().imageWidth(), CV_8UC3);
-    cv::Mat rgb_frame = rgb_images.at(n);
-    cv::Mat depth(iter->second.front().imageHeight(),
-                  iter->second.front().imageWidth() * iter->second.size(),
-                  CV_32FC1);
-    std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
-    for (size_t i = 0; i < iter->second.size(); ++i) {
-      depth_map = project_cloud_to_camera(
-          iter->second.at(i).imageSize(), iter->second.at(i).K(), cloud2,
-          robotPoses.at(iter->first) * iter->second.at(i).localTransform());
-      depth_map.first.copyTo(
-          depth(cv::Range::all(),
-                cv::Range(i * iter->second.front().imageWidth(),
-                          (i + 1) * iter->second.front().imageWidth())));
-    }
-
-    for (int y = 0; y < depth.rows; ++y) {
-      for (int x = 0; x < depth.cols; ++x) {
-        if (depth.at<float>(y, x) > 0.0f) // Valid depth
-        {
-          cv::Vec3b color = rgb_images.at(n).at<cv::Vec3b>(y, x);
-          cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
-          cv::circle(frame, cv::Point(x, y), 3, circle_color, -1);
-        }
-      }
-    }
-
-    cv::imshow("Depth", frame);
-    cv::waitKey(30);
-
-    depth = rtabmap::util2d::cvtDepthFromFloat(depth);
-    mapping_data_.push_back(
-        {rgb_images.at(n), frame, camera_poses.at(n), depth_map.second});
-    n++;
-  }
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloudWithoutNormals(
       new pcl::PointCloud<pcl::PointXYZ>);
@@ -675,6 +634,45 @@ Result DatabaseExporter::load_rtabmap_db() {
               << " points)" << std::endl;
   }
 
+  for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
+           cameraModels.begin();
+       iter != cameraModels.end(); ++iter) {
+    cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
+                                   iter->second.front().imageWidth(), CV_8UC3);
+    cv::Mat rgb_frame = rgb_images[iter->first];
+    cv::Mat depth(iter->second.front().imageHeight(),
+                  iter->second.front().imageWidth() * iter->second.size(),
+                  CV_32FC1);
+    std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
+    for (size_t i = 0; i < iter->second.size(); ++i) {
+      depth_map = project_cloud_to_camera(
+          iter->second.at(i).imageSize(), iter->second.at(i).K(), cloud2,
+          robotPoses.at(iter->first) * iter->second.at(i).localTransform());
+      depth_map.first.copyTo(
+          depth(cv::Range::all(),
+                cv::Range(i * iter->second.front().imageWidth(),
+                          (i + 1) * iter->second.front().imageWidth())));
+    }
+
+    for (int y = 0; y < depth.rows; ++y) {
+      for (int x = 0; x < depth.cols; ++x) {
+        if (depth.at<float>(y, x) > 0.0f) // Valid depth
+        {
+          cv::Vec3b color = rgb_frame.at<cv::Vec3b>(y, x);
+          cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
+          cv::circle(frame, cv::Point(x, y), 3, circle_color, -1);
+        }
+      }
+    }
+
+    // cv::imshow("Depth", frame);
+    // cv::waitKey(1);
+
+    depth = rtabmap::util2d::cvtDepthFromFloat(depth);
+    mapping_data_.push_back(
+        {rgb_frame, frame, optimized_poses[iter->first], depth_map.second});
+  }
+
   std::vector<std::pair<std::pair<int, int>, pcl::PointXY>> pointToPixel;
   float textureRange = 0.0f;
   float textureAngle = 0.0f;
@@ -686,7 +684,6 @@ Result DatabaseExporter::load_rtabmap_db() {
       *cloudToExport, robotPoses, cameraModels, textureRange, textureAngle,
       textureRoiRatios, projMask, distanceToCamPolicy, &progressState);
 
-  // color the cloud
   std::vector<int> pointToCamId;
   std::vector<float> pointToCamIntensity;
   pointToCamId.resize(!cloudToExport->empty() ? cloudToExport->size()
@@ -697,6 +694,8 @@ Result DatabaseExporter::load_rtabmap_db() {
       new pcl::PointCloud<pcl::PointXYZRGBNormal>());
   assembledCloudValidPoints->resize(pointToCamId.size());
 
+  // Figure out what color each point in the pointcloud should be based on pixel
+  // color
   int imagesDone = 1;
   for (std::map<int, rtabmap::Transform>::iterator iter = robotPoses.begin();
        iter != robotPoses.end(); ++iter) {
@@ -936,6 +935,7 @@ std::vector<Object> semantic_mapping(
   std::vector<Object> objects; // cloud, closest point, label, confidence
   std::unordered_map<std::string, int> object_counts;
   std::vector<std::vector<cv::Mat>> detection_frames;
+  int iter = 0;
   for (const auto &frame : mapping_data) {
     cv::Mat rgb = std::get<0>(frame);
     cv::Mat depth = std::get<1>(frame);
@@ -970,7 +970,8 @@ std::vector<Object> semantic_mapping(
           int x2 = numpy_array[py::int_(2)].cast<int>();
           int y2 = numpy_array[py::int_(3)].cast<int>();
 
-          // std::cout << "Box: " << x1 << ", " << y1 << ", " << x2 << ", " << y2
+          // std::cout << "Box: " << x1 << ", " << y1 << ", " << x2 << ", " <<
+          // y2
           //           << std::endl;
 
           cv::Mat detection_frame = rgb.clone();
@@ -997,6 +998,8 @@ std::vector<Object> semantic_mapping(
           if (label == "chair" || label == "cup") {
             bounding_boxes.push_back(
                 {label, confidence, BoundingBox(x1, y1, x2, y2)});
+          } else {
+            continue;
           }
 
           // Add the speed to the image
@@ -1010,17 +1013,25 @@ std::vector<Object> semantic_mapping(
                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Display the image
-          cv::imshow("Image", detection_frame);
-          cv::waitKey(1);
+          // cv::imshow("Image", detection_frame);
+          // cv::imshow("Depth", depth);
+          // cv::waitKey(1);
 
           detection_frames.push_back({detection_frame, rgb, depth});
         }
       }
     }
+    cv::destroyAllWindows();
+
     std::vector<Object> new_objects;
     for (const auto &elem : bounding_boxes) {
       std::string label = std::get<0>(elem);
       float conf = std::get<1>(elem);
+      std::cout << "iter: " << iter << std::endl;
+      auto detection = detection_frames.at(iter);
+      // cv::imshow("Detection", detection.at(0));
+      // cv::imshow("depth", detection.at(2));
+      // cv::waitKey(0);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud =
           object_cloud_from_bounding_box(elem, pixel_to_point_map, cloud, pose);
 
@@ -1050,6 +1061,7 @@ std::vector<Object> semantic_mapping(
           object_counts[label]++;
         }
       }
+      iter++;
     }
     std::string file_path = std::string(PROJECT_PATH) + "/output/" + timestamp +
                             "/landmarks/" + timestamp + ".yaml";
@@ -1057,6 +1069,12 @@ std::vector<Object> semantic_mapping(
 
     for (const auto &object : new_objects) {
       if (object.cloud->size() < 5) {
+        std::cout << "Object " << object.label
+                  << " has less than 5 points, skipping. Size: "
+                  << object.cloud->size() << std::endl;
+        std::cout << "centroid: " << object.centroid.x << ", "
+                  << object.centroid.y << ", " << object.centroid.z
+                  << std::endl;
         continue;
       }
       std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp +
@@ -1082,25 +1100,25 @@ std::vector<Object> semantic_mapping(
       file.close();
     }
   }
-  int iter = 0;
-  std::string path =
-      std::string(PROJECT_PATH) + "/output/" + timestamp + "/detections/";
-  std::cout << "saving images to: " << path << std::endl;
-  for (const auto &frames : detection_frames) {
-    cv::Mat detection_frame = frames[0];
-    cv::Mat rgb = frames[1];
-    cv::Mat depth = frames[2];
-
-    // save the images
-
-    if (std::filesystem::exists(path)) {
-      cv::imwrite(path + "rgb" + std::to_string(iter) + ".png", rgb);
-      cv::imwrite(path + "depth" + std::to_string(iter) + ".png", depth);
-      cv::imwrite(path + "detection" + std::to_string(iter) + ".png",
-                  detection_frame);
-    }
-    iter++;
-  }
+  // int iter = 0;
+  // std::string path =
+  //     std::string(PROJECT_PATH) + "/output/" + timestamp + "/detections/";
+  // std::cout << "saving images to: " << path << std::endl;
+  // for (const auto &frames : detection_frames) {
+  //   cv::Mat detection_frame = frames[0];
+  //   cv::Mat rgb = frames[1];
+  //   cv::Mat depth = frames[2];
+  //
+  //   // save the images
+  //
+  //   if (std::filesystem::exists(path)) {
+  //     cv::imwrite(path + "rgb" + std::to_string(iter) + ".png", rgb);
+  //     cv::imwrite(path + "depth" + std::to_string(iter) + ".png", depth);
+  //     cv::imwrite(path + "detection" + std::to_string(iter) + ".png",
+  //                 detection_frame);
+  //   }
+  //   iter++;
+  // }
   std::cout << "Finished semantic mapping" << std::endl;
   return objects;
 }
