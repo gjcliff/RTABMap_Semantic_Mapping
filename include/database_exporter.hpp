@@ -42,6 +42,7 @@
 namespace py = pybind11;
 
 struct MouseData {
+    cv::Mat image;
     cv::Point start_point;
     cv::Point end_point;
     cv::Rect bounding_box;

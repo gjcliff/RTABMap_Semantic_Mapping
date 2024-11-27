@@ -68,6 +68,10 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     std::cout << "Failed to create objects directory" << std::endl;
     return;
   }
+  if (!std::filesystem::create_directory(path + "/detections")) {
+    std::cout << "Failed to create objects directory" << std::endl;
+    return;
+  }
 }
 
 DatabaseExporter::~DatabaseExporter() {
@@ -583,6 +587,7 @@ Result DatabaseExporter::load_rtabmap_db() {
        iter != cameraModels.end(); ++iter) {
     cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
                                    iter->second.front().imageWidth(), CV_8UC3);
+    cv::Mat rgb_frame = rgb_images.at(n);
     cv::Mat depth(iter->second.front().imageHeight(),
                   iter->second.front().imageWidth() * iter->second.size(),
                   CV_32FC1);
@@ -612,8 +617,8 @@ Result DatabaseExporter::load_rtabmap_db() {
     cv::waitKey(30);
 
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
-    mapping_data_.push_back({rgb_images.at(n), depth_map.first,
-                             camera_poses.at(n), depth_map.second});
+    mapping_data_.push_back(
+        {rgb_images.at(n), frame, camera_poses.at(n), depth_map.second});
     n++;
   }
 
@@ -866,7 +871,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
   pcl::PointXYZRGB closest_point;
   float l2_closest = 0.0;
   // figure out what the closest point in the pointcloud is to the camera
-  // and add the point to the object cloud
+  // and add all points to the object cloud
   for (int y = box.y1; y < box.y2; ++y) {
     for (int x = box.x1; x < box.x2; ++x) {
       if (pixel_to_point_map.find(std::make_pair(y, x)) !=
@@ -897,13 +902,14 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
       }
     }
   }
+
   if (object_cloud->empty()) {
     return object_cloud;
   }
 
   // filter out the points that are too far away from the closest point to
   // the camera
-  float threshold = 1.0;
+  float threshold = 0.5;
   object_cloud->points.erase(
       std::remove_if(
           object_cloud->points.begin(), object_cloud->points.end(),
@@ -921,7 +927,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
   return object_cloud;
 }
 
-
 std::vector<Object> semantic_mapping(
     py::object &net, DatabaseExporter &exporter,
     std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
@@ -930,6 +935,7 @@ std::vector<Object> semantic_mapping(
   // start by getting the detections, and creating some pretty images
   std::vector<Object> objects; // cloud, closest point, label, confidence
   std::unordered_map<std::string, int> object_counts;
+  std::vector<std::vector<cv::Mat>> detection_frames;
   for (const auto &frame : mapping_data) {
     cv::Mat rgb = std::get<0>(frame);
     cv::Mat depth = std::get<1>(frame);
@@ -964,8 +970,10 @@ std::vector<Object> semantic_mapping(
           int x2 = numpy_array[py::int_(2)].cast<int>();
           int y2 = numpy_array[py::int_(3)].cast<int>();
 
+          cv::Mat detection_frame = rgb.clone();
+
           // Draw the box on the image
-          cv::rectangle(rgb, cv::Point(x1, y1), cv::Point(x2, y2),
+          cv::rectangle(detection_frame, cv::Point(x1, y1), cv::Point(x2, y2),
                         cv::Scalar(0, 255, 0), 2);
 
           // Add the label to the image
@@ -973,42 +981,49 @@ std::vector<Object> semantic_mapping(
           py::object classes = boxes.attr("cls");
           std::string label =
               names[py::int_(classes[py::int_(i)])].cast<std::string>();
-          cv::putText(rgb, label, cv::Point(x1, y1 - 10),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+          cv::putText(detection_frame, label, cv::Point(x1, y1 - 10),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Add the confidence to the image
           float confidence = conf_tensor[py::int_(i)].cast<float>();
-          cv::putText(rgb, std::to_string(confidence), cv::Point(x1, y1 - 30),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+          cv::putText(detection_frame, std::to_string(confidence),
+                      cv::Point(x1, y1 - 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                      cv::Scalar(0, 255, 0), 2);
 
           // add the bounding box with the label to the list for later
-          bounding_boxes.push_back(
-              {label, confidence, BoundingBox(x1, y1, x2, y2)});
+          if (label == "chair" || label == "cup") {
+            std::cout << "Adding bounding box: " << label << std::endl;
+            std::cout << "Confidence: " << confidence << std::endl;
+            bounding_boxes.push_back(
+                {label, confidence, BoundingBox(x1, y1, x2, y2)});
+          }
 
           // Add the speed to the image
           py::object speed_py = detection.attr("speed");
           std::string speed = py::str(speed_py).cast<std::string>();
-          cv::putText(rgb, speed, cv::Point(x1, y1 - 50),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+          cv::putText(detection_frame, speed, cv::Point(x1, y1 - 50),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Add the timestamp to the image
-          cv::putText(rgb, timestamp, cv::Point(x1, y1 - 70),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
+          cv::putText(detection_frame, timestamp, cv::Point(x1, y1 - 70),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Display the image
-          cv::imshow("Image", rgb);
+          cv::imshow("Image", detection_frame);
           cv::waitKey(1);
+
+          detection_frames.push_back({detection_frame, rgb, depth});
         }
       }
     }
+    std::cout << "bounding boxes: " << bounding_boxes.size()
+      << std::endl;
     std::vector<Object> new_objects;
     for (const auto &elem : bounding_boxes) {
       std::string label = std::get<0>(elem);
       float conf = std::get<1>(elem);
-      BoundingBox box = std::get<2>(elem);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud =
-          object_cloud_from_bounding_box(elem, pixel_to_point_map,
-                                         cloud, pose);
+          object_cloud_from_bounding_box(elem, pixel_to_point_map, cloud, pose);
 
       // calculate the centroid of the object's pointcloud
       pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
@@ -1024,7 +1039,7 @@ std::vector<Object> semantic_mapping(
           float l2 = std::sqrt(std::pow((elem.centroid.x - centroid.x), 2) +
                                std::pow((elem.centroid.y - centroid.y), 2) +
                                std::pow((elem.centroid.z - centroid.z), 2));
-          if (l2 < 0.1) {
+          if (l2 < 1.0) {
             elem.label = conf > elem.confidence ? label : elem.label;
             elem.confidence = conf > elem.confidence ? conf : elem.confidence;
             found = true;
@@ -1068,44 +1083,64 @@ std::vector<Object> semantic_mapping(
       file.close();
     }
   }
+  int iter = 0;
+  std::string path =
+      std::string(PROJECT_PATH) + "/output/" + timestamp + "/detections/";
+  std::cout << "saving images to: " << path << std::endl;
+  for (const auto &frames : detection_frames) {
+    cv::Mat detection_frame = frames[0];
+    cv::Mat rgb = frames[1];
+    cv::Mat depth = frames[2];
+
+    // save the images
+
+    if (std::filesystem::exists(path)) {
+      cv::imwrite(path + "rgb" + std::to_string(iter) + ".png", rgb);
+      cv::imwrite(path + "depth" + std::to_string(iter) + ".png", depth);
+      cv::imwrite(path + "detection" + std::to_string(iter) + ".png",
+                  detection_frame);
+    }
+    iter++;
+  }
+  std::cout << "Finished semantic mapping" << std::endl;
   return objects;
 }
 
-// Mouse callback function
 cv::Point start_point, end_point;
 bool drawing = false;
 cv::Mat image;
 
 void mouse_callback(int event, int x, int y, int, void *data) {
-  // Convert userdata (void*) back to MouseData*
-    MouseData* mouse_data = static_cast<MouseData*>(data);
+  MouseData *mouse_data = static_cast<MouseData *>(data);
 
-    switch (event) {
-        case cv::EVENT_LBUTTONDOWN: // Start drawing
-            mouse_data->drawing = true;
-            mouse_data->start_point = cv::Point(x, y);
-            mouse_data->bounding_box = cv::Rect(x, y, 0, 0); // Initialize
-            break;
+  switch (event) {
+  case cv::EVENT_LBUTTONDOWN: // Start drawing
+    mouse_data->drawing = true;
+    mouse_data->start_point = cv::Point(x, y);
+    mouse_data->bounding_box = cv::Rect(x, y, 0, 0); // Initialize
+    break;
 
-        case cv::EVENT_MOUSEMOVE: // Update rectangle as the user drags
-            if (mouse_data->drawing) {
-                int width = x - mouse_data->start_point.x;
-                int height = y - mouse_data->start_point.y;
-                mouse_data->bounding_box = cv::Rect(mouse_data->start_point.x, mouse_data->start_point.y, width, height);
-            }
-            break;
-
-        case cv::EVENT_LBUTTONUP: // Finish drawing
-            if (mouse_data->drawing) {
-                mouse_data->drawing = false;
-                mouse_data->finished = true;
-                int width = x - mouse_data->start_point.x;
-                int height = y - mouse_data->start_point.y;
-                mouse_data->bounding_box = cv::Rect(mouse_data->start_point.x, mouse_data->start_point.y, width, height);
-                std::cout << "Bounding box: " << mouse_data->bounding_box << std::endl;
-            }
-            break;
+  case cv::EVENT_MOUSEMOVE: // Update rectangle as the user drags
+    if (mouse_data->drawing) {
+      int width = x - mouse_data->start_point.x;
+      int height = y - mouse_data->start_point.y;
+      mouse_data->bounding_box = cv::Rect(
+          mouse_data->start_point.x, mouse_data->start_point.y, width, height);
     }
+    break;
+
+  case cv::EVENT_LBUTTONUP: // Finish drawing
+    if (mouse_data->drawing) {
+      mouse_data->drawing = false;
+      mouse_data->finished = true;
+      int width = x - mouse_data->start_point.x;
+      int height = y - mouse_data->start_point.y;
+      mouse_data->bounding_box = cv::Rect(
+          mouse_data->start_point.x, mouse_data->start_point.y, width, height);
+      std::cout << "Bounding box: " << mouse_data->bounding_box << std::endl;
+    }
+    break;
+  }
 }
 
 void manual_labeling(Result &result, std::vector<Object> &objects) {
@@ -1150,7 +1185,7 @@ int main(int argc, char *argv[]) {
     std::vector<Object> objects = semantic_mapping(
         net, extractor, result.mapping_data, result.cloud, result.timestamp);
 
-    manual_labeling(result, objects);
+    // manual_labeling(result, objects);
 
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;
