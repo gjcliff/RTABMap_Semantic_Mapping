@@ -16,7 +16,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-add_definitions(-DPROJECT_PATH="${PROJECT_SOURCE_DIR}")
+add_definitions(-DPROJECT_PATH="${CMAKE_SOURCE_DIR}")
 
 # set(CMAKE_PREFIX_PATH "/opt/ros/humble" ${CMAKE_PREFIX_PATH})
 

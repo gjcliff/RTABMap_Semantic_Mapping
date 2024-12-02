@@ -120,7 +120,7 @@ private:
   std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
   project_cloud_to_camera(const cv::Size &image_size,
                           const cv::Mat &camera_matrix,
-                          const pcl::PCLPointCloud2::Ptr cloud,
+                          const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
                           const rtabmap::Transform &camera_transform);
 
   // @brief Convert a point cloud to an occupancy grid

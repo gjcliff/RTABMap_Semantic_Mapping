@@ -2,7 +2,8 @@
 
 DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
                                    std::string model_name)
-    : timestamp_(generate_timestamp_string()) {
+  : timestamp_(generate_timestamp_string())
+{
   // check if database name is empty
   if (rtabmap_database_name.empty()) {
     std::cout << "RTABMap database name is empty" << std::endl;
@@ -10,14 +11,14 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
   }
 
   rtabmap_database_path_ =
-      std::string(PROJECT_PATH) + "/databases/" + rtabmap_database_name;
+    std::string(PROJECT_PATH) + "/databases/" + rtabmap_database_name;
 
   // initialize shared pointers for the cloud and occupancy grid
   rtabmap_cloud_ = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+    new pcl::PointCloud<pcl::PointXYZRGB>);
 
   rtabmap_occupancy_grid_ =
-      nav_msgs::msg::OccupancyGrid::SharedPtr(new nav_msgs::msg::OccupancyGrid);
+    nav_msgs::msg::OccupancyGrid::SharedPtr(new nav_msgs::msg::OccupancyGrid);
 
   // check if model name is empty
   if (model_name.empty()) {
@@ -74,7 +75,8 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
   }
 }
 
-DatabaseExporter::~DatabaseExporter() {
+DatabaseExporter::~DatabaseExporter()
+{
   // create the output directory
   std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
 
@@ -98,14 +100,14 @@ DatabaseExporter::~DatabaseExporter() {
   for (const auto &data : mapping_data_) {
     // save rgb images
     std::string image_path =
-        path + "/images/" + std::to_string(rgbImagesExported) + ".jpg";
+      path + "/images/" + std::to_string(rgbImagesExported) + ".jpg";
     cv::imwrite(image_path, std::get<0>(data));
     ++rgbImagesExported;
 
     // save depth images
     cv::Mat depthExported = std::get<1>(data);
     std::string depth_path =
-        path + "/depths/" + std::to_string(depthImagesExported) + ".jpg";
+      path + "/depths/" + std::to_string(depthImagesExported) + ".jpg";
 
     cv::imwrite(depth_path, depthExported);
     ++depthImagesExported;
@@ -143,13 +145,15 @@ DatabaseExporter::~DatabaseExporter() {
   std::cout << "Depth Images exported: " << depthImagesExported << std::endl;
 }
 
-cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array) {
+cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array)
+{
   py::buffer_info buf = np_array.request();
   cv::Mat mat(buf.shape[0], buf.shape[1], CV_8UC3, (uchar *)buf.ptr);
   return mat;
 }
 
-py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat) {
+py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat)
+{
   return py::array_t<uint8_t>({mat.rows, mat.cols, mat.channels()},
                               {mat.step[0], mat.step[1], sizeof(uint8_t)},
                               mat.data);
@@ -157,7 +161,8 @@ py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat) {
 
 nav_msgs::msg::OccupancyGrid::SharedPtr
 DatabaseExporter::point_cloud_to_occupancy_grid(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+{
   // calculate the centroid
   Eigen::Matrix<float, 4, 1> centroid;
   pcl::ConstCloudIterator<pcl::PointXYZRGB> cloud_iterator(*cloud);
@@ -184,13 +189,13 @@ DatabaseExporter::point_cloud_to_occupancy_grid(
   }
 
   nav_msgs::msg::OccupancyGrid::SharedPtr occupancy_grid =
-      std::make_shared<nav_msgs::msg::OccupancyGrid>();
+    std::make_shared<nav_msgs::msg::OccupancyGrid>();
   cloud->width = cloud->points.size();
   occupancy_grid->info.resolution = 0.05;
   occupancy_grid->info.width =
-      std::abs(max_x - min_x) / occupancy_grid->info.resolution + 1;
+    std::abs(max_x - min_x) / occupancy_grid->info.resolution + 1;
   occupancy_grid->info.height =
-      std::abs(max_y - min_y) / occupancy_grid->info.resolution + 1;
+    std::abs(max_y - min_y) / occupancy_grid->info.resolution + 1;
   occupancy_grid->info.origin.position.x = min_x;
   occupancy_grid->info.origin.position.y = min_y;
   occupancy_grid->info.origin.position.z = 0;
@@ -199,7 +204,7 @@ DatabaseExporter::point_cloud_to_occupancy_grid(
   occupancy_grid->info.origin.orientation.z = 0;
   occupancy_grid->info.origin.orientation.w = 1;
   occupancy_grid->data.resize(
-      occupancy_grid->info.width * occupancy_grid->info.height, 0);
+    occupancy_grid->info.width * occupancy_grid->info.height, 0);
   for (const auto &point : cloud->points) {
     int x = (point.x - min_x) / occupancy_grid->info.resolution;
     int y = (point.y - min_y) / occupancy_grid->info.resolution;
@@ -210,39 +215,39 @@ DatabaseExporter::point_cloud_to_occupancy_grid(
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+{
   // statistical outlier removal
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr sor_cloud(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+    new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
   sor.setInputCloud(cloud);
   sor.setMeanK(100); // increase for more permissive, decrease for less
   sor.setStddevMulThresh(
-      1.0); // increase for more permissive, decrease for less
+    1.0); // increase for more permissive, decrease for less
   sor.filter(*sor_cloud);
 
   // radius outlier removal
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr radius_cloud(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+    new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> radius_outlier;
   radius_outlier.setInputCloud(sor_cloud);
   radius_outlier.setRadiusSearch(
-      0.2); // adjust based on spacing in the point cloud
+    0.2); // adjust based on spacing in the point cloud
   radius_outlier.setMinNeighborsInRadius(
-      5); // increase for more aggressive outlier removal
+    5); // increase for more aggressive outlier removal
   radius_outlier.filter(*radius_cloud);
   radius_cloud->width = radius_cloud->points.size();
 
   // find the lowest point in the pointcloud
-  auto min_point_iter = std::min_element(
-      radius_cloud->points.begin(), radius_cloud->points.end(),
-      [](const pcl::PointXYZRGB &lhs, const pcl::PointXYZRGB &rhs) {
-        return lhs.z < rhs.z;
-      });
+  auto min_point_iter =
+    std::min_element(radius_cloud->points.begin(), radius_cloud->points.end(),
+                     [](const pcl::PointXYZRGB &lhs,
+                        const pcl::PointXYZRGB &rhs) { return lhs.z < rhs.z; });
 
   // passthrough filter
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_cloud(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+    new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::PassThrough<pcl::PointXYZRGB> pass;
   std::cout << "Min point: " << min_point_iter->z << std::endl;
   pass.setInputCloud(radius_cloud);
@@ -257,11 +262,12 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
 
 std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
 DatabaseExporter::project_cloud_to_camera(
-    const cv::Size &image_size, const cv::Mat &camera_matrix,
-    const pcl::PCLPointCloud2::Ptr cloud,
-    const rtabmap::Transform &camera_transform) {
+  const cv::Size &image_size, const cv::Mat &camera_matrix,
+  const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+  const rtabmap::Transform &camera_transform)
+{
   UASSERT(!camera_transform.isNull());
-  UASSERT(!cloud->data.empty());
+  UASSERT(!cloud->empty());
   UASSERT(camera_matrix.type() == CV_64FC1 && camera_matrix.cols == 3 &&
           camera_matrix.cols == 3);
 
@@ -276,65 +282,54 @@ DatabaseExporter::project_cloud_to_camera(
   // create a map from each pixel to the index of their point in the pointcloud
   std::map<std::pair<int, int>, int> pixel_to_point_map;
 
-  pcl::MsgFieldMap field_map;
-  pcl::createMapping<pcl::PointXYZRGB>(cloud->fields, field_map);
-
   int count = 0;
-  if (field_map.size() == 1) {
-    for (uint32_t row = 0; row < (uint32_t)cloud->height; ++row) {
-      const uint8_t *row_data = &cloud->data[row * cloud->row_step];
-      for (uint32_t col = 0; col < (uint32_t)cloud->width; ++col) {
-        const uint8_t *msg_data = row_data + col * cloud->point_step;
-        pcl::PointXYZRGB ptScan;
-        memcpy(&ptScan, msg_data + field_map.front().serialized_offset,
-               field_map.front().size);
-        ptScan = rtabmap::util3d::transformPoint(ptScan, t);
+  for (pcl::PointCloud<pcl::PointXYZRGB>::const_iterator it = cloud->begin();
+       it != cloud->end(); ++it) {
+    pcl::PointXYZRGB ptScan = *it;
+    ptScan = rtabmap::util3d::transformPoint(ptScan, t);
 
-        // re-project in camera frame
-        float z = ptScan.z;
-        bool set = false;
-        if (z > 0.0f) {
-          float invZ = 1.0f / z;
-          float dx = (fx * ptScan.x) * invZ + cx;
-          float dy = (fy * ptScan.y) * invZ + cy;
-          int dx_low = dx;
-          int dy_low = dy;
-          int dx_high = dx + 0.5f;
-          int dy_high = dy + 0.5f;
-          if (uIsInBounds(dx_low, 0, registered.cols) &&
-              uIsInBounds(dy_low, 0, registered.rows)) {
-            set = true;
-            float &zReg = registered.at<float>(dy_low, dx_low);
-            if (zReg == 0 || z < zReg) {
-              zReg = z;
-            }
-          }
-          if ((dx_low != dx_high || dy_low != dy_high) &&
-              uIsInBounds(dx_high, 0, registered.cols) &&
-              uIsInBounds(dy_high, 0, registered.rows)) {
-            set = true;
-            float &zReg = registered.at<float>(dy_high, dx_high);
-            if (zReg == 0 || z < zReg) {
-              zReg = z;
-            }
-          }
-          if (set) {
-            pixel_to_point_map[std::make_pair(dy_low, dx_low)] = count;
-            count++;
-          }
+    // re-project in camera frame
+    float z = ptScan.z;
+    bool set = false;
+    if (z > 0.0f) {
+      float invZ = 1.0f / z;
+      float dx = (fx * ptScan.x) * invZ + cx;
+      float dy = (fy * ptScan.y) * invZ + cy;
+      int dx_low = dx;
+      int dy_low = dy;
+      int dx_high = dx + 0.5f;
+      int dy_high = dy + 0.5f;
+      if (uIsInBounds(dx_low, 0, registered.cols) &&
+          uIsInBounds(dy_low, 0, registered.rows)) {
+        set = true;
+        float &zReg = registered.at<float>(dy_low, dx_low);
+        if (zReg == 0 || z < zReg) {
+          zReg = z;
         }
       }
+      if ((dx_low != dx_high || dy_low != dy_high) &&
+          uIsInBounds(dx_high, 0, registered.cols) &&
+          uIsInBounds(dy_high, 0, registered.rows)) {
+        set = true;
+        float &zReg = registered.at<float>(dy_high, dx_high);
+        if (zReg == 0 || z < zReg) {
+          zReg = z;
+        }
+      }
+      if (set) {
+        pixel_to_point_map[std::make_pair(dy_low, dx_low)] = count;
+        count++;
+      }
     }
-  } else {
-    std::cerr << "field map pcl::pointXYZ not found!" << std::endl;
   }
-  std::cout << "Points in camera=" << count << "/" << cloud->data.size()
+  std::cout << "Points in camera=" << count << "/" << cloud->points.size()
             << std::endl;
 
   return {registered, pixel_to_point_map};
 }
 
-std::string DatabaseExporter::generate_timestamp_string() {
+std::string DatabaseExporter::generate_timestamp_string()
+{
   std::time_t now = std::time(nullptr);
   std::tm *ptm = std::localtime(&now);
 
@@ -345,7 +340,8 @@ std::string DatabaseExporter::generate_timestamp_string() {
   return oss.str();
 }
 
-Result DatabaseExporter::load_rtabmap_db() {
+Result DatabaseExporter::load_rtabmap_db()
+{
   Result result;
   pcl::PointCloud<pcl::PointXYZRGB> cloud;
   rtabmap::ParametersMap parameters;
@@ -383,9 +379,9 @@ Result DatabaseExporter::load_rtabmap_db() {
   }
 
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr assembledCloud(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+    new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::PointCloud<pcl::PointXYZI>::Ptr assembledCloudI(
-      new pcl::PointCloud<pcl::PointXYZI>);
+    new pcl::PointCloud<pcl::PointXYZI>);
   std::map<int, rtabmap::Transform> robotPoses;
   std::vector<std::map<int, rtabmap::Transform>> cameraPoses;
   std::map<int, rtabmap::Transform> scanPoses;
@@ -397,14 +393,14 @@ Result DatabaseExporter::load_rtabmap_db() {
 
   std::map<int, cv::Mat> rgb_images;
   for (std::map<int, rtabmap::Transform>::iterator iter =
-           optimizedPoses.lower_bound(1);
+         optimizedPoses.lower_bound(1);
        iter != optimizedPoses.end(); ++iter) {
     rtabmap::Signature node = nodes.find(iter->first)->second;
 
     // uncompress data
     std::vector<rtabmap::CameraModel> models = node.sensorData().cameraModels();
     std::vector<rtabmap::StereoCameraModel> stereoModels =
-        node.sensorData().stereoCameraModels();
+      node.sensorData().stereoCameraModels();
 
     cv::Mat rgb;
     cv::Mat depth;
@@ -423,31 +419,31 @@ Result DatabaseExporter::load_rtabmap_db() {
       cv::Mat tmpDepth;
       rtabmap::LaserScan scan;
       node.sensorData().uncompressData(
-          exportImages ? &rgb : 0,
-          (texture || exportImages) &&
-                  !node.sensorData().depthOrRightCompressed().empty()
-              ? &tmpDepth
-              : 0,
-          &scan);
+        exportImages ? &rgb : 0,
+        (texture || exportImages) &&
+            !node.sensorData().depthOrRightCompressed().empty()
+          ? &tmpDepth
+          : 0,
+        &scan);
       if (scan.empty()) {
         std::cout << "Node " << iter->first
                   << " doesn't have scan data, empty cloud is created."
                   << std::endl;
       }
       // if (decimation > 1 || minRange > 0.0f || maxRange) {
-      scan = rtabmap::util3d::commonFiltering(scan, decimation, minRange,
-                                              maxRange);
+      scan =
+        rtabmap::util3d::commonFiltering(scan, decimation, minRange, maxRange);
       // }
       if (scan.hasRGB()) {
         cloud = rtabmap::util3d::laserScanToPointCloudRGB(
-            scan, scan.localTransform());
+          scan, scan.localTransform());
         if (noiseRadius > 0.0f && noiseMinNeighbors > 0) {
           indices = rtabmap::util3d::radiusFiltering(cloud, noiseRadius,
                                                      noiseMinNeighbors);
         }
       } else {
-        cloudI = rtabmap::util3d::laserScanToPointCloudI(scan,
-                                                         scan.localTransform());
+        cloudI =
+          rtabmap::util3d::laserScanToPointCloudI(scan, scan.localTransform());
         if (noiseRadius > 0.0f && noiseMinNeighbors > 0) {
           indices = rtabmap::util3d::radiusFiltering(cloudI, noiseRadius,
                                                      noiseMinNeighbors);
@@ -483,24 +479,24 @@ Result DatabaseExporter::load_rtabmap_db() {
     if (filter_ceiling != 0.0 || filter_floor != 0.0f) {
       if (cloud.get() && !cloud->empty()) {
         cloud = rtabmap::util3d::passThrough(
-            cloud, "z",
-            filter_floor != 0.0f ? filter_floor
-                                 : (float)std::numeric_limits<int>::min(),
-            filter_ceiling != 0.0f ? filter_ceiling
-                                   : (float)std::numeric_limits<int>::max());
+          cloud, "z",
+          filter_floor != 0.0f ? filter_floor
+                               : (float)std::numeric_limits<int>::min(),
+          filter_ceiling != 0.0f ? filter_ceiling
+                                 : (float)std::numeric_limits<int>::max());
       }
       if (cloudI.get() && !cloudI->empty()) {
         cloudI = rtabmap::util3d::passThrough(
-            cloudI, "z",
-            filter_floor != 0.0f ? filter_floor
-                                 : (float)std::numeric_limits<int>::min(),
-            filter_ceiling != 0.0f ? filter_ceiling
-                                   : (float)std::numeric_limits<int>::max());
+          cloudI, "z",
+          filter_floor != 0.0f ? filter_floor
+                               : (float)std::numeric_limits<int>::min(),
+          filter_ceiling != 0.0f ? filter_ceiling
+                                 : (float)std::numeric_limits<int>::max());
       }
     }
 
     rtabmap::Transform lidarViewpoint =
-        iter->second * node.sensorData().laserScanRaw().localTransform();
+      iter->second * node.sensorData().laserScanRaw().localTransform();
     rawViewpoints.insert(std::make_pair(iter->first, lidarViewpoint));
 
     if (cloud.get() && !cloud->empty()) {
@@ -545,7 +541,7 @@ Result DatabaseExporter::load_rtabmap_db() {
                     "camera poses.");
         for (size_t i = 0; i < models.size(); ++i) {
           cameraPoses[i].insert(std::make_pair(
-              iter->first, iter->second * models[i].localTransform()));
+            iter->first, iter->second * models[i].localTransform()));
         }
       }
     }
@@ -555,9 +551,9 @@ Result DatabaseExporter::load_rtabmap_db() {
     }
     if (true && !node.sensorData().laserScanCompressed().empty()) {
       scanPoses.insert(std::make_pair(
-          iter->first,
-          iter->second *
-              node.sensorData().laserScanCompressed().localTransform()));
+        iter->first,
+        iter->second *
+          node.sensorData().laserScanCompressed().localTransform()));
     }
     std::cout << "Create and assemble the clouds... done (" << timer.ticks()
               << "s, "
@@ -572,32 +568,28 @@ Result DatabaseExporter::load_rtabmap_db() {
   std::map<int, rtabmap::Transform> optimized_poses;
 
   for (std::map<int, rtabmap::Transform>::iterator iter =
-           optimizedPoses.lower_bound(1);
+         optimizedPoses.lower_bound(1);
        iter != optimizedPoses.end(); ++iter) {
     optimized_poses[iter->first] = iter->second;
   }
 
-  // create a point cloud from the rtabmap cloud
-  pcl::PCLPointCloud2::Ptr cloud2(new pcl::PCLPointCloud2);
-  pcl::toPCLPointCloud2(*rtabmap_cloud_, *cloud2);
-
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloudWithoutNormals(
-      new pcl::PointCloud<pcl::PointXYZ>);
+    new pcl::PointCloud<pcl::PointXYZ>);
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr rawAssembledCloud(
-      new pcl::PointCloud<pcl::PointXYZ>);
+    new pcl::PointCloud<pcl::PointXYZ>);
 
   pcl::copyPointCloud(*rtabmap_cloud_, *cloudWithoutNormals);
   rawAssembledCloud = cloudWithoutNormals;
 
   pcl::PointCloud<pcl::Normal>::Ptr normals =
-      rtabmap::util3d::computeNormals(cloudWithoutNormals, 20, 0);
+    rtabmap::util3d::computeNormals(cloudWithoutNormals, 20, 0);
 
   bool groundNormalsUp = true;
   pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloudToExport(
-      new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    new pcl::PointCloud<pcl::PointXYZRGBNormal>);
   pcl::PointCloud<pcl::PointXYZINormal>::Ptr cloudIToExport(
-      new pcl::PointCloud<pcl::PointXYZINormal>);
+    new pcl::PointCloud<pcl::PointXYZINormal>);
   if (!assembledCloud->empty()) {
     UASSERT(assembledCloud->size() == normals->size());
     pcl::concatenateFields(*assembledCloud, *normals, *cloudToExport);
@@ -635,7 +627,7 @@ Result DatabaseExporter::load_rtabmap_db() {
   }
 
   for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
-           cameraModels.begin();
+         cameraModels.begin();
        iter != cameraModels.end(); ++iter) {
     cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
                                    iter->second.front().imageWidth(), CV_8UC3);
@@ -646,12 +638,12 @@ Result DatabaseExporter::load_rtabmap_db() {
     std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
     for (size_t i = 0; i < iter->second.size(); ++i) {
       depth_map = project_cloud_to_camera(
-          iter->second.at(i).imageSize(), iter->second.at(i).K(), cloud2,
-          robotPoses.at(iter->first) * iter->second.at(i).localTransform());
+        iter->second.at(i).imageSize(), iter->second.at(i).K(), rtabmap_cloud_,
+        robotPoses.at(iter->first) * iter->second.at(i).localTransform());
       depth_map.first.copyTo(
-          depth(cv::Range::all(),
-                cv::Range(i * iter->second.front().imageWidth(),
-                          (i + 1) * iter->second.front().imageWidth())));
+        depth(cv::Range::all(),
+              cv::Range(i * iter->second.front().imageWidth(),
+                        (i + 1) * iter->second.front().imageWidth())));
     }
 
     for (int y = 0; y < depth.rows; ++y) {
@@ -666,11 +658,12 @@ Result DatabaseExporter::load_rtabmap_db() {
     }
 
     // cv::imshow("Depth", frame);
-    // cv::waitKey(1);
+    // cv::imshow("RGB", rgb_frame);
+    // cv::waitKey(0);
 
     depth = rtabmap::util2d::cvtDepthFromFloat(depth);
     mapping_data_.push_back(
-        {rgb_frame, frame, optimized_poses[iter->first], depth_map.second});
+      {rgb_frame, frame, optimized_poses[iter->first], depth_map.second});
   }
 
   std::vector<std::pair<std::pair<int, int>, pcl::PointXY>> pointToPixel;
@@ -681,8 +674,8 @@ Result DatabaseExporter::load_rtabmap_db() {
   bool distanceToCamPolicy = false;
   const rtabmap::ProgressState progressState;
   pointToPixel = rtabmap::util3d::projectCloudToCameras(
-      *cloudToExport, robotPoses, cameraModels, textureRange, textureAngle,
-      textureRoiRatios, projMask, distanceToCamPolicy, &progressState);
+    *cloudToExport, robotPoses, cameraModels, textureRange, textureAngle,
+    textureRoiRatios, projMask, distanceToCamPolicy, &progressState);
 
   std::vector<int> pointToCamId;
   std::vector<float> pointToCamIntensity;
@@ -691,7 +684,7 @@ Result DatabaseExporter::load_rtabmap_db() {
 
   UASSERT(pointToPixel.empty() || pointToPixel.size() == pointToCamId.size());
   pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr assembledCloudValidPoints(
-      new pcl::PointCloud<pcl::PointXYZRGBNormal>());
+    new pcl::PointCloud<pcl::PointXYZRGBNormal>());
   assembledCloudValidPoints->resize(pointToCamId.size());
 
   // Figure out what color each point in the pointcloud should be based on pixel
@@ -727,8 +720,8 @@ Result DatabaseExporter::load_rtabmap_db() {
 
           int subImageWidth = image.cols / modelsSize;
           cv::Mat subImage = image(
-              cv::Range::all(), cv::Range(cameraIndex * subImageWidth,
-                                          (cameraIndex + 1) * subImageWidth));
+            cv::Range::all(), cv::Range(cameraIndex * subImageWidth,
+                                        (cameraIndex + 1) * subImageWidth));
 
           int x = pointToPixel[i].second.x * (float)subImage.cols;
           int y = pointToPixel[i].second.y * (float)subImage.rows;
@@ -743,8 +736,8 @@ Result DatabaseExporter::load_rtabmap_db() {
           } else {
             UASSERT(subImage.type() == CV_8UC1);
             pt.r = pt.g = pt.b = subImage.at<unsigned char>(
-                pointToPixel[i].second.y * subImage.rows,
-                pointToPixel[i].second.x * subImage.cols);
+              pointToPixel[i].second.y * subImage.rows,
+              pointToPixel[i].second.x * subImage.cols);
           }
 
           int exportedId = nodeID;
@@ -795,7 +788,7 @@ Result DatabaseExporter::load_rtabmap_db() {
   if (oi != validIndices->size()) {
     validIndices->resize(oi);
     assembledCloudValidPoints = rtabmap::util3d::extractIndices(
-        assembledCloudValidPoints, validIndices, false, false);
+      assembledCloudValidPoints, validIndices, false, false);
     std::vector<int> pointToCamIdTmp(validIndices->size());
     std::vector<float> pointToCamIntensityTmp(validIndices->size());
     for (size_t i = 0; i < validIndices->size(); ++i) {
@@ -832,7 +825,8 @@ Result DatabaseExporter::load_rtabmap_db() {
 }
 
 pcl::PointXYZ DatabaseExporter::calculate_centroid(
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud) {
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
+{
   pcl::PointXYZ centroid;
   for (const auto &point : cloud->points) {
     centroid.x += point.x;
@@ -852,9 +846,10 @@ pcl::PointXYZ DatabaseExporter::calculate_centroid(
 }
 
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
-    std::tuple<std::string, float, BoundingBox> bounding_box,
-    std::map<std::pair<int, int>, int> pixel_to_point_map,
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, rtabmap::Transform pose) {
+  std::tuple<std::string, float, BoundingBox> bounding_box,
+  std::map<std::pair<int, int>, int> pixel_to_point_map,
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, rtabmap::Transform pose)
+{
   std::random_device rd;
   std::mt19937 gen;
   std::uniform_int_distribution<> dis;
@@ -866,7 +861,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
   int g = dis(gen);
   int b = dis(gen);
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud(
-      new pcl::PointCloud<pcl::PointXYZRGB>);
+    new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::PointXYZRGB closest_point;
   float l2_closest = 0.0;
   // figure out what the closest point in the pointcloud is to the camera
@@ -908,17 +903,17 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
 
   // filter out the points that are too far away from the closest point to
   // the camera
-  float threshold = 0.5;
+  float threshold = 1.0;
   object_cloud->points.erase(
-      std::remove_if(
-          object_cloud->points.begin(), object_cloud->points.end(),
-          [&closest_point, threshold](const pcl::PointXYZRGB &point) {
-            float l2 = std::sqrt(std::pow(point.x - closest_point.x, 2) +
+    std::remove_if(object_cloud->points.begin(), object_cloud->points.end(),
+                   [&closest_point, threshold](const pcl::PointXYZRGB &point) {
+                     float l2 =
+                       std::sqrt(std::pow(point.x - closest_point.x, 2) +
                                  std::pow(point.y - closest_point.y, 2) +
                                  std::pow(point.z - closest_point.z, 2));
-            return l2 > threshold;
-          }),
-      object_cloud->points.end());
+                     return l2 > threshold;
+                   }),
+    object_cloud->points.end());
 
   object_cloud->width = object_cloud->points.size();
   object_cloud->height = 1;
@@ -927,14 +922,15 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
 }
 
 std::vector<Object> semantic_mapping(
-    py::object &net, DatabaseExporter &exporter,
-    std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
-                         std::map<std::pair<int, int>, int>>> &mapping_data,
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, std::string &timestamp) {
+  py::object &net, DatabaseExporter &exporter,
+  std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+                       std::map<std::pair<int, int>, int>>> &mapping_data,
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, std::string &timestamp)
+{
   // start by getting the detections, and creating some pretty images
   std::vector<Object> objects; // cloud, closest point, label, confidence
   std::unordered_map<std::string, int> object_counts;
-  std::vector<std::vector<cv::Mat>> detection_frames;
+  std::vector<cv::Mat> detection_frames;
   int iter = 0;
   for (const auto &frame : mapping_data) {
     cv::Mat rgb = std::get<0>(frame);
@@ -951,8 +947,8 @@ std::vector<Object> semantic_mapping(
       py::object speed = detection.attr("speed");
       if (!boxes.is_none()) {
         auto box_list =
-            boxes.attr("xyxy")
-                .cast<py::list>(); // Example of accessing box coordinates
+          boxes.attr("xyxy")
+            .cast<py::list>(); // Example of accessing box coordinates
         for (size_t i = 0; i < py::len(box_list); ++i) {
           py::object box = box_list[i];
           py::object conf_tensor = boxes.attr("conf");
@@ -962,7 +958,7 @@ std::vector<Object> semantic_mapping(
 
           // Extract the box coordinates
           auto numpy_array =
-              box_list[py::int_(0)].attr("cpu")().attr("numpy")();
+            box_list[py::int_(0)].attr("cpu")().attr("numpy")();
 
           // Access individual elements using NumPy indexing.
           int x1 = numpy_array[py::int_(0)].cast<int>();
@@ -984,7 +980,7 @@ std::vector<Object> semantic_mapping(
           py::object names = detection.attr("names");
           py::object classes = boxes.attr("cls");
           std::string label =
-              names[py::int_(classes[py::int_(i)])].cast<std::string>();
+            names[py::int_(classes[py::int_(i)])].cast<std::string>();
           cv::putText(detection_frame, label, cv::Point(x1, y1 - 10),
                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
@@ -997,7 +993,7 @@ std::vector<Object> semantic_mapping(
           // add the bounding box with the label to the list for later
           if (label == "chair" || label == "cup") {
             bounding_boxes.push_back(
-                {label, confidence, BoundingBox(x1, y1, x2, y2)});
+              {label, confidence, BoundingBox(x1, y1, x2, y2)});
           } else {
             continue;
           }
@@ -1017,24 +1013,26 @@ std::vector<Object> semantic_mapping(
           // cv::imshow("Depth", depth);
           // cv::waitKey(1);
 
-          detection_frames.push_back({detection_frame, rgb, depth});
+          detection_frames.push_back(detection_frame);
         }
       }
     }
-    cv::destroyAllWindows();
+    // cv::destroyAllWindows();
 
     std::vector<Object> new_objects;
     for (const auto &elem : bounding_boxes) {
       std::string label = std::get<0>(elem);
       float conf = std::get<1>(elem);
-      std::cout << "iter: " << iter << std::endl;
       auto detection = detection_frames.at(iter);
-      // cv::imshow("Detection", detection.at(0));
-      // cv::imshow("depth", detection.at(2));
-      // cv::waitKey(0);
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud =
-          object_cloud_from_bounding_box(elem, pixel_to_point_map, cloud, pose);
+        object_cloud_from_bounding_box(elem, pixel_to_point_map, cloud, pose);
 
+      std::cout << "object cloud size: " << object_cloud->size() << std::endl;
+      std::cout << "Detected " << label << " with confidence " << conf
+                << std::endl;
+      cv::imshow("Detection", detection_frames.at(iter));
+      cv::imshow("depth", depth);
+      cv::waitKey(0);
       // calculate the centroid of the object's pointcloud
       pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
 
@@ -1088,9 +1086,9 @@ std::vector<Object> semantic_mapping(
 
       // Save the new landmark's name and coordinates
       node[object.label + std::to_string(object_counts[object.label])]["x"] =
-          object.centroid.x;
+        object.centroid.x;
       node[object.label + std::to_string(object_counts[object.label])]["y"] =
-          object.centroid.y;
+        object.centroid.y;
 
       // Open the file for writing
       std::ofstream file(file_path);
@@ -1100,25 +1098,20 @@ std::vector<Object> semantic_mapping(
       file.close();
     }
   }
-  // int iter = 0;
-  // std::string path =
-  //     std::string(PROJECT_PATH) + "/output/" + timestamp + "/detections/";
-  // std::cout << "saving images to: " << path << std::endl;
-  // for (const auto &frames : detection_frames) {
-  //   cv::Mat detection_frame = frames[0];
-  //   cv::Mat rgb = frames[1];
-  //   cv::Mat depth = frames[2];
-  //
-  //   // save the images
-  //
-  //   if (std::filesystem::exists(path)) {
-  //     cv::imwrite(path + "rgb" + std::to_string(iter) + ".png", rgb);
-  //     cv::imwrite(path + "depth" + std::to_string(iter) + ".png", depth);
-  //     cv::imwrite(path + "detection" + std::to_string(iter) + ".png",
-  //                 detection_frame);
-  //   }
-  //   iter++;
-  // }
+  iter = 0;
+  std::string path =
+    std::string(PROJECT_PATH) + "/output/" + timestamp + "/detections/";
+  std::cout << "saving images to: " << path << std::endl;
+  for (const auto &frame : detection_frames) {
+    cv::Mat detection_frame = frame;
+
+    // save the image
+    if (std::filesystem::exists(path)) {
+      cv::imwrite(path + "detection" + std::to_string(iter) + ".png",
+                  detection_frame);
+    }
+    iter++;
+  }
   std::cout << "Finished semantic mapping" << std::endl;
   return objects;
 }
@@ -1127,7 +1120,8 @@ cv::Point start_point, end_point;
 bool drawing = false;
 cv::Mat image;
 
-void mouse_callback(int event, int x, int y, int, void *data) {
+void mouse_callback(int event, int x, int y, int, void *data)
+{
   MouseData *mouse_data = static_cast<MouseData *>(data);
 
   switch (event) {
@@ -1142,7 +1136,7 @@ void mouse_callback(int event, int x, int y, int, void *data) {
       int width = x - mouse_data->start_point.x;
       int height = y - mouse_data->start_point.y;
       mouse_data->bounding_box = cv::Rect(
-          mouse_data->start_point.x, mouse_data->start_point.y, width, height);
+        mouse_data->start_point.x, mouse_data->start_point.y, width, height);
     }
     break;
 
@@ -1153,14 +1147,15 @@ void mouse_callback(int event, int x, int y, int, void *data) {
       int width = x - mouse_data->start_point.x;
       int height = y - mouse_data->start_point.y;
       mouse_data->bounding_box = cv::Rect(
-          mouse_data->start_point.x, mouse_data->start_point.y, width, height);
+        mouse_data->start_point.x, mouse_data->start_point.y, width, height);
       std::cout << "Bounding box: " << mouse_data->bounding_box << std::endl;
     }
     break;
   }
 }
 
-void manual_labeling(Result &result, std::vector<Object> &objects) {
+void manual_labeling(Result &result, std::vector<Object> &objects)
+{
   for (const auto &frame : result.mapping_data) {
     cv::Mat rgb = std::get<0>(frame);
     cv::Mat depth = std::get<1>(frame);
@@ -1175,7 +1170,8 @@ void manual_labeling(Result &result, std::vector<Object> &objects) {
   }
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   try {
     py::scoped_interpreter guard{};
     py::module yolov8 = py::module::import("ultralytics");
@@ -1200,7 +1196,7 @@ int main(int argc, char *argv[]) {
     Result result = extractor.load_rtabmap_db();
 
     std::vector<Object> objects = semantic_mapping(
-        net, extractor, result.mapping_data, result.cloud, result.timestamp);
+      net, extractor, result.mapping_data, result.cloud, result.timestamp);
 
     // manual_labeling(result, objects);
 
