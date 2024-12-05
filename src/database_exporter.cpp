@@ -222,7 +222,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
     new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor;
   sor.setInputCloud(cloud);
-  sor.setMeanK(100); // increase for more permissive, decrease for less
+  sor.setMeanK(50); // increase for more permissive, decrease for less
   sor.setStddevMulThresh(
     1.0); // increase for more permissive, decrease for less
   sor.filter(*sor_cloud);
@@ -257,7 +257,19 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   pass.filter(*pass_cloud);
   pass_cloud->width = pass_cloud->points.size();
 
-  return pass_cloud;
+  // radius outlier removal
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr radius2_cloud(
+    new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> radius2_outlier;
+  radius2_outlier.setInputCloud(pass_cloud);
+  radius2_outlier.setRadiusSearch(
+    0.2); // adjust based on spacing in the point cloud
+  radius2_outlier.setMinNeighborsInRadius(
+    3); // increase for more aggressive outlier removal
+  radius2_outlier.filter(*radius2_cloud);
+  radius2_cloud->width = radius2_cloud->points.size();
+
+  return radius2_cloud;
 }
 
 std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
