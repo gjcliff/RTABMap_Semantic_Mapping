@@ -66,11 +66,11 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     return;
   }
   if (!std::filesystem::create_directory(path + "/landmarks")) {
-    std::cout << "Failed to create objects directory" << std::endl;
+    std::cout << "Failed to create landmarks directory" << std::endl;
     return;
   }
   if (!std::filesystem::create_directory(path + "/detections")) {
-    std::cout << "Failed to create objects directory" << std::endl;
+    std::cout << "Failed to create detections directory" << std::endl;
     return;
   }
 }
@@ -235,7 +235,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   radius_outlier.setRadiusSearch(
     0.2); // adjust based on spacing in the point cloud
   radius_outlier.setMinNeighborsInRadius(
-    5); // increase for more aggressive outlier removal
+    3); // increase for more aggressive outlier removal
   radius_outlier.filter(*radius_cloud);
   radius_cloud->width = radius_cloud->points.size();
 
@@ -249,7 +249,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_cloud(
     new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::PassThrough<pcl::PointXYZRGB> pass;
-  std::cout << "Min point: " << min_point_iter->z << std::endl;
+  // std::cout << "Min point: " << min_point_iter->z << std::endl;
   pass.setInputCloud(radius_cloud);
   pass.setFilterFieldName("z");
   pass.setFilterLimits(min_point_iter->z + 0.4,
@@ -318,9 +318,9 @@ DatabaseExporter::project_cloud_to_camera(
       }
       if (set) {
         pixel_to_point_map[std::make_pair(dy_low, dx_low)] = count;
-        count++;
       }
     }
+    count++;
   }
   std::cout << "Points in camera=" << count << "/" << cloud->points.size()
             << std::endl;
@@ -626,15 +626,16 @@ Result DatabaseExporter::load_rtabmap_db()
               << " points)" << std::endl;
   }
 
+  std::cout << "camera models size: " << cameraModels.size() << std::endl;
   for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
          cameraModels.begin();
        iter != cameraModels.end(); ++iter) {
     cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
                                    iter->second.front().imageWidth(), CV_8UC3);
-    cv::Mat rgb_frame = rgb_images[iter->first];
     cv::Mat depth(iter->second.front().imageHeight(),
                   iter->second.front().imageWidth() * iter->second.size(),
                   CV_32FC1);
+    cv::Mat rgb_frame = rgb_images[iter->first];
     std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
     for (size_t i = 0; i < iter->second.size(); ++i) {
       depth_map = project_cloud_to_camera(
@@ -644,6 +645,11 @@ Result DatabaseExporter::load_rtabmap_db()
         depth(cv::Range::all(),
               cv::Range(i * iter->second.front().imageWidth(),
                         (i + 1) * iter->second.front().imageWidth())));
+      depth = rtabmap::util2d::cvtDepthFromFloat(depth);
+      mapping_data_.push_back(
+        {rgb_frame, frame,
+         robotPoses.at(iter->first),
+         depth_map.second});
     }
 
     for (int y = 0; y < depth.rows; ++y) {
@@ -660,10 +666,6 @@ Result DatabaseExporter::load_rtabmap_db()
     // cv::imshow("Depth", frame);
     // cv::imshow("RGB", rgb_frame);
     // cv::waitKey(0);
-
-    depth = rtabmap::util2d::cvtDepthFromFloat(depth);
-    mapping_data_.push_back(
-      {rgb_frame, frame, optimized_poses[iter->first], depth_map.second});
   }
 
   std::vector<std::pair<std::pair<int, int>, pcl::PointXY>> pointToPixel;
@@ -923,14 +925,15 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
 
 std::vector<Object> semantic_mapping(
   py::object &net, DatabaseExporter &exporter,
-  std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
-                       std::map<std::pair<int, int>, int>>> &mapping_data,
+  std::vector<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+                         std::map<std::pair<int, int>, int>>> &mapping_data,
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud, std::string &timestamp)
 {
   // start by getting the detections, and creating some pretty images
   std::vector<Object> objects; // cloud, closest point, label, confidence
   std::unordered_map<std::string, int> object_counts;
   std::vector<cv::Mat> detection_frames;
+  std::vector<cv::Mat> annotated_depth_frames;
   int iter = 0;
   for (const auto &frame : mapping_data) {
     cv::Mat rgb = std::get<0>(frame);
@@ -952,7 +955,7 @@ std::vector<Object> semantic_mapping(
         for (size_t i = 0; i < py::len(box_list); ++i) {
           py::object box = box_list[i];
           py::object conf_tensor = boxes.attr("conf");
-          if (conf_tensor[py::int_(i)].cast<float>() < 0.8) {
+          if (conf_tensor[py::int_(i)].cast<float>() < 0.9) {
             continue;
           }
 
@@ -971,9 +974,12 @@ std::vector<Object> semantic_mapping(
           //           << std::endl;
 
           cv::Mat detection_frame = rgb.clone();
+          cv::Mat depth_frame = depth.clone();
 
           // Draw the box on the image
           cv::rectangle(detection_frame, cv::Point(x1, y1), cv::Point(x2, y2),
+                        cv::Scalar(0, 255, 0), 2);
+          cv::rectangle(depth_frame, cv::Point(x1, y1), cv::Point(x2, y2),
                         cv::Scalar(0, 255, 0), 2);
 
           // Add the label to the image
@@ -983,10 +989,15 @@ std::vector<Object> semantic_mapping(
             names[py::int_(classes[py::int_(i)])].cast<std::string>();
           cv::putText(detection_frame, label, cv::Point(x1, y1 - 10),
                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+          cv::putText(depth_frame, label, cv::Point(x1, y1 - 10),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Add the confidence to the image
           float confidence = conf_tensor[py::int_(i)].cast<float>();
           cv::putText(detection_frame, std::to_string(confidence),
+                      cv::Point(x1, y1 - 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                      cv::Scalar(0, 255, 0), 2);
+          cv::putText(depth_frame, std::to_string(confidence),
                       cv::Point(x1, y1 - 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
                       cv::Scalar(0, 255, 0), 2);
 
@@ -1003,9 +1014,13 @@ std::vector<Object> semantic_mapping(
           std::string speed = py::str(speed_py).cast<std::string>();
           cv::putText(detection_frame, speed, cv::Point(x1, y1 - 50),
                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+          cv::putText(depth_frame, speed, cv::Point(x1, y1 - 50),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Add the timestamp to the image
           cv::putText(detection_frame, timestamp, cv::Point(x1, y1 - 70),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+          cv::putText(depth_frame, timestamp, cv::Point(x1, y1 - 70),
                       cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
           // Display the image
@@ -1014,12 +1029,14 @@ std::vector<Object> semantic_mapping(
           // cv::waitKey(1);
 
           detection_frames.push_back(detection_frame);
+          annotated_depth_frames.push_back(depth_frame);
         }
       }
     }
     // cv::destroyAllWindows();
 
     std::vector<Object> new_objects;
+    std::vector<cv::Mat> images;
     for (const auto &elem : bounding_boxes) {
       std::string label = std::get<0>(elem);
       float conf = std::get<1>(elem);
@@ -1027,12 +1044,13 @@ std::vector<Object> semantic_mapping(
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud =
         object_cloud_from_bounding_box(elem, pixel_to_point_map, cloud, pose);
 
-      std::cout << "object cloud size: " << object_cloud->size() << std::endl;
-      std::cout << "Detected " << label << " with confidence " << conf
-                << std::endl;
-      cv::imshow("Detection", detection_frames.at(iter));
-      cv::imshow("depth", depth);
-      cv::waitKey(0);
+      // std::cout << "object cloud size: " << object_cloud->size() <<
+      // std::endl; std::cout << "Detected " << label << " with confidence " <<
+      // conf
+      //           << std::endl;
+      // cv::imshow("Detection", detection_frames.at(iter));
+      // cv::imshow("depth", depth);
+      // cv::waitKey(0);
       // calculate the centroid of the object's pointcloud
       pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
 
@@ -1047,7 +1065,7 @@ std::vector<Object> semantic_mapping(
           float l2 = std::sqrt(std::pow((elem.centroid.x - centroid.x), 2) +
                                std::pow((elem.centroid.y - centroid.y), 2) +
                                std::pow((elem.centroid.z - centroid.z), 2));
-          if (l2 < 1.0) {
+          if (l2 < 0.5) {
             elem.label = conf > elem.confidence ? label : elem.label;
             elem.confidence = conf > elem.confidence ? conf : elem.confidence;
             found = true;
@@ -1055,8 +1073,15 @@ std::vector<Object> semantic_mapping(
         }
         if (!found) {
           objects.push_back({object_cloud, centroid, label, conf});
+          images.push_back(detection);
           new_objects.push_back({object_cloud, centroid, label, conf});
           object_counts[label]++;
+          std::cout << "Found new object: " << label << std::endl;
+          std::cout << "Object count: " << object_counts[label] << std::endl;
+          std::cout << "centroid: " << centroid << std::endl;
+          std::cout << "pose: \n" << pose << std::endl;
+          cv::imshow("Image", detection);
+          cv::waitKey(0);
         }
       }
       iter++;
@@ -1066,6 +1091,7 @@ std::vector<Object> semantic_mapping(
     YAML::Node node;
 
     for (const auto &object : new_objects) {
+
       if (object.cloud->size() < 5) {
         std::cout << "Object " << object.label
                   << " has less than 5 points, skipping. Size: "
@@ -1108,6 +1134,17 @@ std::vector<Object> semantic_mapping(
     // save the image
     if (std::filesystem::exists(path)) {
       cv::imwrite(path + "detection" + std::to_string(iter) + ".png",
+                  detection_frame);
+    }
+    iter++;
+  }
+  iter = 0;
+  for (const auto &frame : annotated_depth_frames) {
+    cv::Mat detection_frame = frame;
+
+    // save the image
+    if (std::filesystem::exists(path)) {
+      cv::imwrite(path + "depth_detection" + std::to_string(iter) + ".png",
                   detection_frame);
     }
     iter++;

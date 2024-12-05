@@ -61,7 +61,7 @@ struct Result {
   bool success = false;
   std::string timestamp = "";
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
-  std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+  std::vector<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
                        std::map<std::pair<int, int>, int>>>
       mapping_data;
 };
@@ -139,13 +139,13 @@ private:
   std::string rtabmap_database_path_;
   std::string model_path_;
   std::string timestamp_;
-  std::list<cv::Mat> images_;
+  std::vector<cv::Mat> images_;
   std::vector<std::vector<rtabmap::CameraModel>> camera_models_;
   std::vector<std::vector<rtabmap::StereoCameraModel>> stereo_models_;
 
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr rtabmap_cloud_;
   // rgb image, depth image, transform from camera to world, pixel to point map
-  std::list<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
+  std::vector<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
                        std::map<std::pair<int, int>, int>>>
       mapping_data_;
 
