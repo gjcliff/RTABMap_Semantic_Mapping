@@ -322,8 +322,6 @@ DatabaseExporter::project_cloud_to_camera(
     }
     count++;
   }
-  std::cout << "Points in camera=" << count << "/" << cloud->points.size()
-            << std::endl;
 
   return {registered, pixel_to_point_map};
 }
@@ -626,48 +624,6 @@ Result DatabaseExporter::load_rtabmap_db()
               << " points)" << std::endl;
   }
 
-  std::cout << "camera models size: " << cameraModels.size() << std::endl;
-  for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
-         cameraModels.begin();
-       iter != cameraModels.end(); ++iter) {
-    cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
-                                   iter->second.front().imageWidth(), CV_8UC3);
-    cv::Mat depth(iter->second.front().imageHeight(),
-                  iter->second.front().imageWidth() * iter->second.size(),
-                  CV_32FC1);
-    cv::Mat rgb_frame = rgb_images[iter->first];
-    std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
-    for (size_t i = 0; i < iter->second.size(); ++i) {
-      depth_map = project_cloud_to_camera(
-        iter->second.at(i).imageSize(), iter->second.at(i).K(), rtabmap_cloud_,
-        robotPoses.at(iter->first) * iter->second.at(i).localTransform());
-      depth_map.first.copyTo(
-        depth(cv::Range::all(),
-              cv::Range(i * iter->second.front().imageWidth(),
-                        (i + 1) * iter->second.front().imageWidth())));
-      depth = rtabmap::util2d::cvtDepthFromFloat(depth);
-      mapping_data_.push_back(
-        {rgb_frame, frame,
-         robotPoses.at(iter->first),
-         depth_map.second});
-    }
-
-    for (int y = 0; y < depth.rows; ++y) {
-      for (int x = 0; x < depth.cols; ++x) {
-        if (depth.at<float>(y, x) > 0.0f) // Valid depth
-        {
-          cv::Vec3b color = rgb_frame.at<cv::Vec3b>(y, x);
-          cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
-          cv::circle(frame, cv::Point(x, y), 3, circle_color, -1);
-        }
-      }
-    }
-
-    // cv::imshow("Depth", frame);
-    // cv::imshow("RGB", rgb_frame);
-    // cv::waitKey(0);
-  }
-
   std::vector<std::pair<std::pair<int, int>, pcl::PointXY>> pointToPixel;
   float textureRange = 0.0f;
   float textureAngle = 0.0f;
@@ -809,8 +765,44 @@ Result DatabaseExporter::load_rtabmap_db()
   pcl::copyPointCloud(*cloudToExport, *rtabmap_cloud_);
   rtabmap_cloud_ = filter_point_cloud(rtabmap_cloud_);
 
-  sensor_msgs::msg::PointCloud2 cloud_msg;
-  pcl::toROSMsg(cloud, cloud_msg);
+  for (std::map<int, std::vector<rtabmap::CameraModel>>::iterator iter =
+         cameraModels.begin();
+       iter != cameraModels.end(); ++iter) {
+    cv::Mat frame = cv::Mat::zeros(iter->second.front().imageHeight(),
+                                   iter->second.front().imageWidth(), CV_8UC3);
+    cv::Mat depth(iter->second.front().imageHeight(),
+                  iter->second.front().imageWidth() * iter->second.size(),
+                  CV_32FC1);
+    cv::Mat rgb_frame = rgb_images[iter->first];
+    std::pair<cv::Mat, std::map<std::pair<int, int>, int>> depth_map;
+    for (size_t i = 0; i < iter->second.size(); ++i) {
+      depth_map = project_cloud_to_camera(
+        iter->second.at(i).imageSize(), iter->second.at(i).K(), rtabmap_cloud_,
+        robotPoses.at(iter->first) * iter->second.at(i).localTransform());
+      depth_map.first.copyTo(
+        depth(cv::Range::all(),
+              cv::Range(i * iter->second.front().imageWidth(),
+                        (i + 1) * iter->second.front().imageWidth())));
+      depth = rtabmap::util2d::cvtDepthFromFloat(depth);
+      mapping_data_.push_back(
+        {rgb_frame, frame, robotPoses.at(iter->first), depth_map.second});
+    }
+
+    for (int y = 0; y < depth.rows; ++y) {
+      for (int x = 0; x < depth.cols; ++x) {
+        if (depth.at<float>(y, x) > 0.0f) // Valid depth
+        {
+          cv::Vec3b color = rgb_frame.at<cv::Vec3b>(y, x);
+          cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
+          cv::circle(frame, cv::Point(x, y), 3, circle_color, -1);
+        }
+      }
+    }
+
+    // cv::imshow("Depth", frame);
+    // cv::imshow("RGB", rgb_frame);
+    // cv::waitKey(0);
+  }
 
   result.success = true;
   result.timestamp = timestamp_;
@@ -872,8 +864,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
     for (int x = box.x1; x < box.x2; ++x) {
       if (pixel_to_point_map.find(std::make_pair(y, x)) !=
           pixel_to_point_map.end()) {
-        int index = pixel_to_point_map[std::make_pair(y, x)];
-        pcl::PointXYZRGB point = cloud->points[index];
+        int index = pixel_to_point_map.at(std::make_pair(y, x));
+        std::cout << "Index: " << index << std::endl;
+        std::cout << "Cloud size: " << cloud->size() << std::endl;
+        pcl::PointXYZRGB point = cloud->points.at(index);
 
         if (object_cloud->empty()) {
           closest_point = point;
