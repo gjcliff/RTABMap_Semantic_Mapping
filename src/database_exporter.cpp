@@ -865,8 +865,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
       if (pixel_to_point_map.find(std::make_pair(y, x)) !=
           pixel_to_point_map.end()) {
         int index = pixel_to_point_map.at(std::make_pair(y, x));
-        std::cout << "Index: " << index << std::endl;
-        std::cout << "Cloud size: " << cloud->size() << std::endl;
         pcl::PointXYZRGB point = cloud->points.at(index);
 
         if (object_cloud->empty()) {
@@ -996,12 +994,12 @@ std::vector<Object> semantic_mapping(
                       cv::Scalar(0, 255, 0), 2);
 
           // add the bounding box with the label to the list for later
-          if (label == "chair" || label == "cup") {
-            bounding_boxes.push_back(
-              {label, confidence, BoundingBox(x1, y1, x2, y2)});
-          } else {
-            continue;
-          }
+          // if (label == "chair" || label == "cup") {
+          bounding_boxes.push_back(
+            {label, confidence, BoundingBox(x1, y1, x2, y2)});
+          // } else {
+          //   continue;
+          // }
 
           // Add the speed to the image
           py::object speed_py = detection.attr("speed");
@@ -1070,12 +1068,6 @@ std::vector<Object> semantic_mapping(
           images.push_back(detection);
           new_objects.push_back({object_cloud, centroid, label, conf});
           object_counts[label]++;
-          std::cout << "Found new object: " << label << std::endl;
-          std::cout << "Object count: " << object_counts[label] << std::endl;
-          std::cout << "centroid: " << centroid << std::endl;
-          std::cout << "pose: \n" << pose << std::endl;
-          cv::imshow("Image", detection);
-          cv::waitKey(0);
         }
       }
       iter++;
