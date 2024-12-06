@@ -1,5 +1,8 @@
 #include "database_exporter.hpp"
 
+// I relied on this code heavily to write this
+// https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115
+
 DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
                                    std::string model_name)
   : timestamp_(generate_timestamp_string())
@@ -278,10 +281,10 @@ DatabaseExporter::project_cloud_to_camera(
   const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
   const rtabmap::Transform &camera_transform)
 {
-  UASSERT(!camera_transform.isNull());
-  UASSERT(!cloud->empty());
-  UASSERT(camera_matrix.type() == CV_64FC1 && camera_matrix.cols == 3 &&
-          camera_matrix.cols == 3);
+  assert(!camera_transform.isNull());
+  assert(!cloud->empty());
+  assert(camera_matrix.type() == CV_64FC1 && camera_matrix.cols == 3 &&
+         camera_matrix.cols == 3);
 
   float fx = camera_matrix.at<double>(0, 0);
   float fy = camera_matrix.at<double>(1, 1);
@@ -291,13 +294,16 @@ DatabaseExporter::project_cloud_to_camera(
   cv::Mat registered = cv::Mat::zeros(image_size, CV_32FC1);
   rtabmap::Transform t = camera_transform.inverse();
 
-  // create a map from each pixel to the index of their point in the pointcloud
+  // create a map from each pixel coordinate to the index of their point in the
+  // pointcloud
   std::map<std::pair<int, int>, int> pixel_to_point_map;
 
   int count = 0;
   for (pcl::PointCloud<pcl::PointXYZRGB>::const_iterator it = cloud->begin();
        it != cloud->end(); ++it) {
     pcl::PointXYZRGB ptScan = *it;
+
+    // transform point from world frame to camera frame
     ptScan = rtabmap::util3d::transformPoint(ptScan, t);
 
     // re-project in camera frame
@@ -329,7 +335,7 @@ DatabaseExporter::project_cloud_to_camera(
         }
       }
       if (set) {
-        pixel_to_point_map[std::make_pair(dy_low, dx_low)] = count;
+        pixel_to_point_map[{dy_low, dx_low}] = count;
       }
     }
     count++;
@@ -795,25 +801,19 @@ Result DatabaseExporter::load_rtabmap_db()
         depth(cv::Range::all(),
               cv::Range(i * iter->second.front().imageWidth(),
                         (i + 1) * iter->second.front().imageWidth())));
-      depth = rtabmap::util2d::cvtDepthFromFloat(depth);
+      for (int y = 0; y < depth.rows; ++y) {
+        for (int x = 0; x < depth.cols; ++x) {
+          if (depth.at<float>(y, x) > 0.0f) // Valid depth
+          {
+            cv::Vec3b color = rgb_frame.at<cv::Vec3b>(y, x);
+            cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
+            cv::circle(frame, cv::Point(x, y), 1, circle_color, -1);
+          }
+        }
+      }
       mapping_data_.push_back(
         {rgb_frame, frame, robotPoses.at(iter->first), depth_map.second});
     }
-
-    for (int y = 0; y < depth.rows; ++y) {
-      for (int x = 0; x < depth.cols; ++x) {
-        if (depth.at<float>(y, x) > 0.0f) // Valid depth
-        {
-          cv::Vec3b color = rgb_frame.at<cv::Vec3b>(y, x);
-          cv::Scalar circle_color = cv::Scalar(color[0], color[1], color[2]);
-          cv::circle(frame, cv::Point(x, y), 3, circle_color, -1);
-        }
-      }
-    }
-
-    // cv::imshow("Depth", frame);
-    // cv::imshow("RGB", rgb_frame);
-    // cv::waitKey(0);
   }
 
   result.success = true;
@@ -1138,12 +1138,10 @@ std::vector<Object> semantic_mapping(
   }
   iter = 0;
   for (const auto &frame : annotated_depth_frames) {
-    cv::Mat detection_frame = frame;
-
     // save the image
     if (std::filesystem::exists(path)) {
       cv::imwrite(path + "depth_detection" + std::to_string(iter) + ".png",
-                  detection_frame);
+                  frame);
     }
     iter++;
   }
