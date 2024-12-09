@@ -28,6 +28,11 @@
 #include <pcl/filters/radius_outlier_removal.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/surface/poisson.h>
+#include <pcl/common/common.h>
+#include <pcl/io/ply_io.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/io/obj_io.h>
 
 #include <Python.h>
 #include <pybind11/embed.h>
@@ -51,7 +56,7 @@ struct MouseData {
 };
 
 struct Object {
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud;
   pcl::PointXYZ centroid;
   std::string label;
   float confidence;
@@ -60,7 +65,7 @@ struct Object {
 struct Result {
   bool success = false;
   std::string timestamp = "";
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud;
   std::vector<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
                        std::map<std::pair<int, int>, int>>>
       mapping_data;
@@ -91,7 +96,7 @@ public:
   // @param cloud The pointcloud
   // @return The centroid
   pcl::PointXYZ
-  calculate_centroid(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+  calculate_centroid(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
 
   // @brief Load the rtabmap database
   // @return The result of the operation
@@ -107,8 +112,8 @@ private:
   // @param cloud The point cloud
   // @return The filtered point cloud
   // @return The filtered point cloud
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr
-  filter_point_cloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr
+  filter_point_cloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
 
   // @brief Project the point cloud onto the camera image, and keep track of
   // which points are in each image
@@ -120,14 +125,14 @@ private:
   std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
   project_cloud_to_camera(const cv::Size &image_size,
                           const cv::Mat &camera_matrix,
-                          const pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud,
+                          const pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
                           const rtabmap::Transform &camera_transform);
 
   // @brief Convert a point cloud to an occupancy grid
   // @param cloud The point cloud
   // @return The occupancy grid
   nav_msgs::msg::OccupancyGrid::SharedPtr
-  point_cloud_to_occupancy_grid(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud);
+  point_cloud_to_occupancy_grid(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud);
 
   // @brief Generate a timestamp string
   // @return The timestamp string in the format %Y-%m-%d_%H-%M-%S
@@ -140,10 +145,11 @@ private:
   std::string model_path_;
   std::string timestamp_;
   std::vector<cv::Mat> images_;
+  std::vector<cv::Mat> rgb_depths_;
   std::vector<std::vector<rtabmap::CameraModel>> camera_models_;
   std::vector<std::vector<rtabmap::StereoCameraModel>> stereo_models_;
 
-  pcl::PointCloud<pcl::PointXYZRGB>::Ptr rtabmap_cloud_;
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr rtabmap_cloud_;
   // rgb image, depth image, transform from camera to world, pixel to point map
   std::vector<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
                        std::map<std::pair<int, int>, int>>>
