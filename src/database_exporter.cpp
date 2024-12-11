@@ -238,7 +238,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   radius_outlier.setRadiusSearch(
     0.2); // adjust based on spacing in the point cloud
   radius_outlier.setMinNeighborsInRadius(
-    3); // increase for more aggressive outlier removal
+    5); // increase for more aggressive outlier removal
   radius_outlier.filter(*radius_cloud);
   radius_cloud->width = radius_cloud->points.size();
 
@@ -255,7 +255,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   // std::cout << "Min point: " << min_point_iter->z << std::endl;
   pass.setInputCloud(radius_cloud);
   pass.setFilterFieldName("z");
-  pass.setFilterLimits(min_point_iter->z + 0.4,
+  pass.setFilterLimits(min_point_iter->z + 0.7,
                        FLT_MAX); // adjust based on the scene
   pass.filter(*pass_cloud);
   pass_cloud->width = pass_cloud->points.size();
@@ -1006,12 +1006,12 @@ std::vector<Object> semantic_mapping(
                       cv::Scalar(0, 255, 0), 2);
 
           // add the bounding box with the label to the list for later
-          // if (label == "chair" || label == "cup") {
+          if (label != "refrigerator") {
           bounding_boxes.push_back(
             {label, confidence, BoundingBox(x1, y1, x2, y2)});
-          // } else {
-          //   continue;
-          // }
+          } else {
+            continue;
+          }
 
           // Add the speed to the image
           py::object speed_py = detection.attr("speed");

@@ -43,8 +43,7 @@ RUN /bin/bash -c "source /opt/ros/humble/setup.bash \
     && mkdir build \
     && cd build \
     && cmake .. -G 'Ninja' \
-    && ninja \
-    && ninja install"
+    && ninja"
 
 RUN chmod +x /app/entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]

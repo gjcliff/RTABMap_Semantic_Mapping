@@ -16,30 +16,20 @@ cloud as a Point Cloud Library (.pcl) file, a 2D occupancy grid representation
 of the point cloud, and rgb and emulated depth images for each pose in the pose
 graph.
 
-The executable is meant to be run with two arguments
+I used [this file](https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115) from RTABMap's source code as a guide to write my code for
+extracting information from the database files.
+
+The executable has one argument
 **RTABMap Database File (.db):**
-* The name of a RTABMap database file (your_file.db) that is inside the ```databases```
+* The name of a RTABMap database file (your_file.db) that is inside the ```databases/```
 directory of this repo. Copy your database files there for them to be processed.
+<!---->
+<!-- **Image Recognition Model Name:** -->
+<!-- * The name of the model (your_model.onnx) that you'd like to use to perform -->
+<!-- object detection. I use OpenCV 4.10.0's DNN module to run object detection and -->
+<!-- a yolov8n.onnx model, but you can use any model you'd like that works with this -->
+<!-- verison of OpenCV. -->
 
-**Image Recognition Model Name:**
-* The name of the model (your_model.onnx) that you'd like to use to perform
-object detection. I use OpenCV 4.10.0's DNN module to run object detection and
-a yolov8n.onnx model, but you can use any model you'd like that works with this
-verison of OpenCV.
-
-### Warnings
-This project was designed specifically for RTABMap database files that were created
-by the iPhone app without LIDAR. I plan to build in support for all types of
-database files to extract the data from them, but as of today (11/15/2024) I
-don't have the time. If you have database files created with methods other than
-the RTABMap iPhone app, you can fork the repo and modify the code to get the information
-you need by using [this](https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115) as a guide.
-
-Files created by the docker container in the ```output``` directory will be owned by
-root. You can change the owner to your host system's user with this command:
-```bash
-sudo chown -R your_user:your_user output/*
-```
 ### Docker
 ```bash
 docker build -t rtabmap_dnn .
@@ -53,11 +43,15 @@ docker run --rm -e DISPLAY=$DISPLAY \
 or
 ```bash
 docker build -t rtabmap_dnn .
-docker run --rm -v ./output:/app/output rtabmap_dnn <name_of_db_file> <name_of_dnn_model>
+docker run --rm -e DISPLAY=$DISPLAY -v ./output:/app/output\
+    rtabmap_dnn <name_of_db_file>
 ```
-I haven't finished the semantic mapping portion of this package yet and object
-recognition doesn't work. It will work by Tuesday, 11/19/2024.
-
+If you'd like to visualize images during the process, you can enable X11 forwarding
+by adding this option to your ```docker run``` command:
+```bash
+docker run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix\
+    -v ./output:/app/output rtabmap_dnn <name_of_db_file>
+```
 ### Run on your host system
 Make sure that you have ros2 humble installed on your system:
 https://docs.ros.org/en/humble/Installation.html
@@ -68,7 +62,7 @@ source /opt/ros/humble/setup.bash
 ```
 Next install dependencies:
 ```bash
-sudo apt update && apt install -y \
+sudo apt-get update && apt-get install -y \
     build-essential \
     cmake \
     ninja-build \
@@ -76,12 +70,14 @@ sudo apt update && apt install -y \
     g++ \
     wget \
     unzip \
+    pybind11-dev \
+    python3-pip \
     ros-humble-rtabmap-ros \
     ros-humble-navigation2 \
     ros-humble-pcl-conversions \
     libpcl-dev
 ```
-Now we build and install RTABMap from source:
+Build and install RTABMap from source:
 ```bash
 git clone https://github.com/introlab/rtabmap.git \
 cd rtabmap \
@@ -94,7 +90,11 @@ ldconfig \
 cd /app \
 rm -rf rtabmap
 ```
-Now we can build the rtabmap_dnn package:
+Install ultralytics:
+```bash
+pip install ultralytics
+```
+Build the rtabmap_dnn package:
 ```bash
 mkdir build && cd build
 cmake .. -G "Ninja"
@@ -102,5 +102,19 @@ ninja
 ```
 To run the executable:
 ```bash
-./database_exporter <name_of_db_file> <name_of_dnn_model>
+./database_exporter <name_of_db_file># <name_of_dnn_model>
+```
+
+### Warnings
+This project was designed specifically for RTABMap database files that were created
+by the iPhone app without LIDAR. I plan to build in support for all types of
+database files to extract the data from them, but as of today (11/15/2024) I
+don't have the time. If you have database files created with methods other than
+the RTABMap iPhone app, you can fork the repo and modify the code to get the information
+you need by using [this](https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115) as a guide.
+
+Files created by the docker container in the ```output``` directory will be owned by
+root. You can change the owner to your host system's user with this command:
+```bash
+sudo chown -R your_user:your_user output/*
 ```
