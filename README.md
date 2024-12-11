@@ -31,6 +31,11 @@ directory of this repo. Copy your database files there for them to be processed.
 <!-- verison of OpenCV. -->
 
 ### Docker
+
+The idea is that you will create a map using the RTABMap for iPhone, and then
+send this to your computer to use an input for the docker container. You can
+find the database files in your iPhone's "Files" app, in the folder named
+"RTABMap".
 ```bash
 docker build -t rtabmap_dnn .
 docker run --rm -e DISPLAY=$DISPLAY \
