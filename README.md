@@ -2,6 +2,8 @@
 Process RTABMap database files (.db) and run object detection with deep neural
 networks to perform semantic mapping.
 
+This repo is part of a larger project. Check out my portfolio post about it [here](https://graham-clifford.com/Localizing-and-Navigating-in-Semantic-Maps-Created-by-an-iPhone/).
+
 Table of Contents:
 1. [Introduction](#introduction)
 2. [Warnings](#warnings)
