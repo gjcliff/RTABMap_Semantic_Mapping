@@ -111,6 +111,26 @@ To run the executable:
 ```bash
 ./database_exporter <name_of_db_file># <name_of_dnn_model>
 ```
+### For running on LUCI
+cd into ```/home/luci_ws/src/luci_aw_navigation/``` and run:
+```bash
+git pull
+git switch mobile_phone
+```
+Copy the output file that was just created to your docker container:
+```bash
+docker cp output/<timestamp> luci_msr:/home/luci_ws/src/luci_aw_navigation/awl_navigation/output/
+```
+Copy the landmarks file into the landmarks directory:
+```bash
+docker exec -it luci_msr bash
+cd src/luci_aw_navigation/awl_navigation/output/<timestamp>
+cp landmarks/<timestamp>.yaml ../../landmarks/
+colcon build
+source install/setup.bash
+```
+The necessary commands for running AMCL localization are in the README.md file
+the the luci_awl_navigation repo.
 
 ### Warnings
 This project was designed specifically for RTABMap database files that were created
