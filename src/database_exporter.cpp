@@ -1,13 +1,13 @@
 #include "database_exporter.hpp"
 
-// I relied on this code heavily to write this
+// I used this RTABMap source code as a reference for this file
 // https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115
 
 DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
                                    std::string model_name)
   : timestamp_(generate_timestamp_string())
 {
-  // check if database name is empty
+  // initialize variables, create output directories
   if (rtabmap_database_name.empty()) {
     std::cout << "RTABMap database name is empty" << std::endl;
     return;
@@ -16,14 +16,12 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
   rtabmap_database_path_ =
     std::string(PROJECT_PATH) + "/databases/" + rtabmap_database_name;
 
-  // initialize shared pointers for the cloud and occupancy grid
   rtabmap_cloud_ = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
     new pcl::PointCloud<pcl::PointXYZRGB>);
 
   rtabmap_occupancy_grid_ =
     nav_msgs::msg::OccupancyGrid::SharedPtr(new nav_msgs::msg::OccupancyGrid);
 
-  // check if model name is empty
   if (model_name.empty()) {
     std::cout << "Model name is empty, not performing semantic mapping"
               << std::endl;
@@ -34,7 +32,6 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     net_ = cv::dnn::readNet(model_path_);
   }
 
-  // create output directories for the deconstructor
   std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
   if (!std::filesystem::create_directory(path)) {
     std::cout << "Failed to create output directory" << std::endl;
@@ -80,7 +77,7 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
 
 DatabaseExporter::~DatabaseExporter()
 {
-  // create the output directory
+  // base path
   std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
 
   // save the point cloud
@@ -148,6 +145,10 @@ DatabaseExporter::~DatabaseExporter()
   std::cout << "Depth Images exported: " << depthImagesExported << std::endl;
 }
 
+// @brief: This function takes in a numpy array and converts it to a cv::Mat
+// object
+// @param np_array: The numpy array to convert
+// @return: The cv::Mat object
 cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array)
 {
   py::buffer_info buf = np_array.request();
@@ -155,6 +156,10 @@ cv::Mat DatabaseExporter::numpy_to_mat(const py::array_t<uint8_t> &np_array)
   return mat;
 }
 
+// @brief: This function takes in a cv::Mat object and converts it to a numpy
+// array
+// @param mat: The cv::Mat object to convert
+// @return: The numpy array
 py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat)
 {
   return py::array_t<uint8_t>({mat.rows, mat.cols, mat.channels()},
@@ -162,6 +167,10 @@ py::array DatabaseExporter::mat_to_numpy(const cv::Mat &mat)
                               mat.data);
 }
 
+// @brief: This function takes in a point cloud and converts it to an occupancy
+// grid
+// @param cloud: The point cloud to convert
+// @return: The occupancy grid
 nav_msgs::msg::OccupancyGrid::SharedPtr
 DatabaseExporter::point_cloud_to_occupancy_grid(
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
@@ -193,6 +202,7 @@ DatabaseExporter::point_cloud_to_occupancy_grid(
 
   nav_msgs::msg::OccupancyGrid::SharedPtr occupancy_grid =
     std::make_shared<nav_msgs::msg::OccupancyGrid>();
+  // necessary? can't remember why i did this but i remember there was a reason
   cloud->width = cloud->points.size();
   occupancy_grid->info.resolution = 0.05;
   occupancy_grid->info.width =
@@ -217,6 +227,11 @@ DatabaseExporter::point_cloud_to_occupancy_grid(
   return occupancy_grid;
 }
 
+// @brief: This function takes in a point cloud and a camera transform and
+// projects the point cloud to the camera frame. The sequence of filters was
+// determined by trial and error
+// @param cloud: The point cloud to filter
+// @return The filtered point cloud
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
@@ -252,15 +267,15 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_cloud(
     new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::PassThrough<pcl::PointXYZRGB> pass;
-  // std::cout << "Min point: " << min_point_iter->z << std::endl;
   pass.setInputCloud(radius_cloud);
   pass.setFilterFieldName("z");
-  pass.setFilterLimits(min_point_iter->z + 0.7,
+  pass.setFilterLimits(min_point_iter->z +
+                         0.7,    // 0.7 meters, magic number sorry
                        FLT_MAX); // adjust based on the scene
   pass.filter(*pass_cloud);
   pass_cloud->width = pass_cloud->points.size();
 
-  // radius outlier removal
+  // another radius outlier removal
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr radius2_cloud(
     new pcl::PointCloud<pcl::PointXYZRGB>);
   pcl::RadiusOutlierRemoval<pcl::PointXYZRGB> radius2_outlier;
@@ -1007,8 +1022,8 @@ std::vector<Object> semantic_mapping(
 
           // add the bounding box with the label to the list for later
           if (label != "refrigerator") {
-          bounding_boxes.push_back(
-            {label, confidence, BoundingBox(x1, y1, x2, y2)});
+            bounding_boxes.push_back(
+              {label, confidence, BoundingBox(x1, y1, x2, y2)});
           } else {
             continue;
           }
