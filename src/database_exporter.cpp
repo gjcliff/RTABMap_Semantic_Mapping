@@ -1,7 +1,17 @@
-#include "database_exporter.hpp"
+// Created by Graham Clifford
+//
+// This file was created as a part of this project:
+// https://graham-clifford.com/Localizing-and-Navigating-in-Semantic-Maps-Created-by-an-iPhone/
+//
+// This script extracts RGB images, depth images, a point cloud, and camera
+// matrices from an RTABMap database file created by an iPhone without LIDAR
+// enabled. The information extracted from the database is then used to create
+// a semantic map of the environment.
 
 // I used this RTABMap source code as a reference for this file
 // https://github.com/introlab/rtabmap/blob/ff61266430017eb4924605b832cd688c8739af18/tools/Export/main.cpp#L1104-L1115
+
+#include "database_exporter.hpp"
 
 DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
                                    std::string model_name)
@@ -32,39 +42,48 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     net_ = cv::dnn::readNet(model_path_);
   }
 
+  // base path
   std::string path = std::string(PROJECT_PATH) + "/output/" + timestamp_;
   if (!std::filesystem::create_directory(path)) {
     std::cout << "Failed to create output directory" << std::endl;
     return;
   }
-  if (!std::filesystem::create_directory(path + "/depths")) {
-    std::cout << "Failed to create depths directory" << std::endl;
-    return;
-  }
-  if (!std::filesystem::create_directory(path + "/cloud")) {
-    std::cout << "Failed to create cloud directory" << std::endl;
-    return;
-  }
-  if (!std::filesystem::create_directory(path + "/grid")) {
-    std::cout << "Failed to create grid directory" << std::endl;
-    return;
-  }
+  // rgb images from every pose in the pose graph in order
   if (!std::filesystem::create_directory(path + "/images")) {
     std::cout << "Failed to create images directory" << std::endl;
     return;
   }
+  // depth images from every pose in the pose graph in order
+  if (!std::filesystem::create_directory(path + "/depths")) {
+    std::cout << "Failed to create depths directory" << std::endl;
+    return;
+  }
+  // full point cloud (.pcl)
+  if (!std::filesystem::create_directory(path + "/cloud")) {
+    std::cout << "Failed to create cloud directory" << std::endl;
+    return;
+  }
+  // occupancy grid files saved with nav2_map_server (.pgm and .yaml)
+  if (!std::filesystem::create_directory(path + "/grid")) {
+    std::cout << "Failed to create grid directory" << std::endl;
+    return;
+  }
+  // camera matrices for each pose in the pose grpah in .yaml format
   if (!std::filesystem::create_directory(path + "/camera_models")) {
     std::cout << "Failed to create camera_models directory" << std::endl;
     return;
   }
+  // individual .pcl files for objects detected in the environment
   if (!std::filesystem::create_directory(path + "/objects")) {
     std::cout << "Failed to create objects directory" << std::endl;
     return;
   }
+  // a .yaml file listing the landmarks from semantic mapping (name and xy pos)
   if (!std::filesystem::create_directory(path + "/landmarks")) {
     std::cout << "Failed to create landmarks directory" << std::endl;
     return;
   }
+  // RGB and depth images with YOLOv8 detections overlaid
   if (!std::filesystem::create_directory(path + "/detections")) {
     std::cout << "Failed to create detections directory" << std::endl;
     return;
@@ -273,6 +292,15 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr DatabaseExporter::filter_point_cloud(
   return radius2_cloud;
 }
 
+// @brief Project a point cloud to a given image frame, and map the index of
+// each point that is visible in the camera frame to the pixel coordinate in
+// the image frame
+// @param image_size: The size of the image frame
+// @param camera_matrix: The camera matrix
+// @param cloud: The point cloud to project to the camera frame
+// @param camera_transform: The transformation matrix from the camera frame to
+// the world frame
+// @return A pair containing the depth image and a map from pixel
 std::pair<cv::Mat, std::map<std::pair<int, int>, int>>
 DatabaseExporter::project_cloud_to_camera(
   const cv::Size &image_size, const cv::Mat &camera_matrix,
@@ -289,7 +317,7 @@ DatabaseExporter::project_cloud_to_camera(
   float cx = camera_matrix.at<double>(0, 2);
   float cy = camera_matrix.at<double>(1, 2);
 
-  cv::Mat registered = cv::Mat::zeros(image_size, CV_32FC1);
+  cv::Mat depth_image = cv::Mat::zeros(image_size, CV_32FC1);
   rtabmap::Transform t = camera_transform.inverse();
 
   // create a map from each pixel coordinate to the index of their point in the
@@ -315,19 +343,19 @@ DatabaseExporter::project_cloud_to_camera(
       int dy_low = dy;
       int dx_high = dx + 0.5f;
       int dy_high = dy + 0.5f;
-      if (uIsInBounds(dx_low, 0, registered.cols) &&
-          uIsInBounds(dy_low, 0, registered.rows)) {
+      if (uIsInBounds(dx_low, 0, depth_image.cols) &&
+          uIsInBounds(dy_low, 0, depth_image.rows)) {
         set = true;
-        float &zReg = registered.at<float>(dy_low, dx_low);
+        float &zReg = depth_image.at<float>(dy_low, dx_low);
         if (zReg == 0 || z < zReg) {
           zReg = z;
         }
       }
       if ((dx_low != dx_high || dy_low != dy_high) &&
-          uIsInBounds(dx_high, 0, registered.cols) &&
-          uIsInBounds(dy_high, 0, registered.rows)) {
+          uIsInBounds(dx_high, 0, depth_image.cols) &&
+          uIsInBounds(dy_high, 0, depth_image.rows)) {
         set = true;
-        float &zReg = registered.at<float>(dy_high, dx_high);
+        float &zReg = depth_image.at<float>(dy_high, dx_high);
         if (zReg == 0 || z < zReg) {
           zReg = z;
         }
@@ -339,9 +367,12 @@ DatabaseExporter::project_cloud_to_camera(
     count++;
   }
 
-  return {registered, pixel_to_point_map};
+  return {depth_image, pixel_to_point_map};
 }
 
+// @brief: Generate a string from the current time
+// @return: The string representation of the current time in the format
+// YYYY-MM-DD_HH-MM-SS
 std::string DatabaseExporter::generate_timestamp_string()
 {
   std::time_t now = std::time(nullptr);
@@ -354,6 +385,9 @@ std::string DatabaseExporter::generate_timestamp_string()
   return oss.str();
 }
 
+// @brief: Perform all operations to extract data from the RTABMap database. I
+// plan on breaking this function up ASAP, expect changes in late December 2024
+// and January 2025.
 Result DatabaseExporter::load_rtabmap_db()
 {
   Result result;
@@ -424,87 +458,43 @@ Result DatabaseExporter::load_rtabmap_db()
       int decimation = 1;
       int maxRange = 100.0;
       int minRange = 0.0;
-      float noiseRadius = 0.0f;
-      int noiseMinNeighbors = 0;
-      bool exportImages = true;
-      bool texture = true;
       cv::Mat tmpDepth;
       rtabmap::LaserScan scan;
       node.sensorData().uncompressData(
-        exportImages ? &rgb : 0,
-        (texture || exportImages) &&
-            !node.sensorData().depthOrRightCompressed().empty()
-          ? &tmpDepth
-          : 0,
+        &rgb,
+        !node.sensorData().depthOrRightCompressed().empty() ? &tmpDepth : 0,
         &scan);
       if (scan.empty()) {
         std::cout << "Node " << iter->first
                   << " doesn't have scan data, empty cloud is created."
                   << std::endl;
       }
-      // if (decimation > 1 || minRange > 0.0f || maxRange) {
+      // is the line below necessary?
       scan =
         rtabmap::util3d::commonFiltering(scan, decimation, minRange, maxRange);
-      // }
       if (scan.hasRGB()) {
         cloud = rtabmap::util3d::laserScanToPointCloudRGB(
           scan, scan.localTransform());
-        if (noiseRadius > 0.0f && noiseMinNeighbors > 0) {
-          indices = rtabmap::util3d::radiusFiltering(cloud, noiseRadius,
-                                                     noiseMinNeighbors);
-        }
       } else {
         cloudI =
           rtabmap::util3d::laserScanToPointCloudI(scan, scan.localTransform());
-        if (noiseRadius > 0.0f && noiseMinNeighbors > 0) {
-          indices = rtabmap::util3d::radiusFiltering(cloudI, noiseRadius,
-                                                     noiseMinNeighbors);
-        }
       }
     }
 
     node.sensorData().uncompressData(&rgb, &depth);
 
-    // saving images stuff
+    // store these for later
     if (!rgb.empty()) {
       rgb_images[iter->first] = rgb;
       // save calibration per image
-      // calibration can change over time, e.g. camera has auto focus
       camera_models_.push_back(models);
+      // calibration can change over time, e.g. camera has auto focus
     }
 
-    float voxelSize = 0.0f;
-    float filter_ceiling = std::numeric_limits<float>::max();
-    float filter_floor = 0.0f;
-    if (voxelSize > 0.0f) {
-      if (cloud.get() && !cloud->empty())
-        cloud = rtabmap::util3d::voxelize(cloud, indices, voxelSize);
-      else if (cloudI.get() && !cloudI->empty())
-        cloudI = rtabmap::util3d::voxelize(cloudI, indices, voxelSize);
-    }
     if (cloud.get() && !cloud->empty())
       cloud = rtabmap::util3d::transformPointCloud(cloud, iter->second);
     else if (cloudI.get() && !cloudI->empty())
       cloudI = rtabmap::util3d::transformPointCloud(cloudI, iter->second);
-
-    if (filter_ceiling != 0.0 || filter_floor != 0.0f) {
-      if (cloud.get() && !cloud->empty()) {
-        cloud = rtabmap::util3d::passThrough(
-          cloud, "z",
-          filter_floor != 0.0f ? filter_floor
-                               : (float)std::numeric_limits<int>::min(),
-          filter_ceiling != 0.0f ? filter_ceiling
-                                 : (float)std::numeric_limits<int>::max());
-      }
-      if (cloudI.get() && !cloudI->empty()) {
-        cloudI = rtabmap::util3d::passThrough(
-          cloudI, "z",
-          filter_floor != 0.0f ? filter_floor
-                               : (float)std::numeric_limits<int>::min(),
-          filter_ceiling != 0.0f ? filter_ceiling
-                                 : (float)std::numeric_limits<int>::max());
-      }
-    }
 
     rtabmap::Transform lidarViewpoint =
       iter->second * node.sensorData().laserScanRaw().localTransform();
@@ -526,6 +516,8 @@ Result DatabaseExporter::load_rtabmap_db()
       rawViewpointIndices.resize(assembledCloudI->size(), iter->first);
     }
 
+    std::cout << "assembledCloud: " << assembledCloud->size() << std::endl;
+    std::cout << "assembledCloudI: " << assembledCloudI->size() << std::endl;
 
     robotPoses.insert(std::make_pair(iter->first, iter->second));
     cameraStamps.insert(std::make_pair(iter->first, node.getStamp()));
@@ -819,6 +811,9 @@ Result DatabaseExporter::load_rtabmap_db()
   return result;
 }
 
+// @brief: Calculate the centroid of a given point cloud
+// @param cloud: The point cloud to calculate the centroid of
+// @return: The centroid of the point cloud
 pcl::PointXYZ DatabaseExporter::calculate_centroid(
   pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud)
 {
@@ -840,6 +835,13 @@ pcl::PointXYZ DatabaseExporter::calculate_centroid(
   return centroid;
 }
 
+// @brief Figure out which points in a given point cloud belong to the object
+// within a give bounding box in an image frame using a map from points in the
+// point cloud to pixel coordinates in the image frame
+// @param bounding_box: The bounding box of the object in the image frame
+// @param pixel_to_point_map: The map from pixel coordinates to points in the
+// @param cloud: The point cloud
+// @param pose: The pose of the camera in the world frame
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
   std::tuple<std::string, float, BoundingBox> bounding_box,
   std::map<std::pair<int, int>, int> pixel_to_point_map,
@@ -916,6 +918,17 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud_from_bounding_box(
   return object_cloud;
 }
 
+// @brief: Perform semantic mapping on a given point cloud using a given neural
+// network
+// @param net: The neural network to use for semantic mapping
+// @param exporter: The database exporter to use for converting images to numpy
+// arrays
+// @param mapping_data: The data to use for semantic mapping
+// @param cloud: The point cloud to perform semantic mapping on
+// @param timestamp: The timestamp of the data
+// @return: A vector of objects containing the point cloud of the object, the
+// closest point to the camera, the label of the object, and the confidence of
+// the label
 std::vector<Object> semantic_mapping(
   py::object &net, DatabaseExporter &exporter,
   std::vector<std::tuple<cv::Mat, cv::Mat, rtabmap::Transform,
@@ -1138,60 +1151,6 @@ std::vector<Object> semantic_mapping(
   return objects;
 }
 
-cv::Point start_point, end_point;
-bool drawing = false;
-cv::Mat image;
-
-void mouse_callback(int event, int x, int y, int, void *data)
-{
-  MouseData *mouse_data = static_cast<MouseData *>(data);
-
-  switch (event) {
-  case cv::EVENT_LBUTTONDOWN: // Start drawing
-    mouse_data->drawing = true;
-    mouse_data->start_point = cv::Point(x, y);
-    mouse_data->bounding_box = cv::Rect(x, y, 0, 0); // Initialize
-    break;
-
-  case cv::EVENT_MOUSEMOVE: // Update rectangle as the user drags
-    if (mouse_data->drawing) {
-      int width = x - mouse_data->start_point.x;
-      int height = y - mouse_data->start_point.y;
-      mouse_data->bounding_box = cv::Rect(
-        mouse_data->start_point.x, mouse_data->start_point.y, width, height);
-    }
-    break;
-
-  case cv::EVENT_LBUTTONUP: // Finish drawing
-    if (mouse_data->drawing) {
-      mouse_data->drawing = false;
-      mouse_data->finished = true;
-      int width = x - mouse_data->start_point.x;
-      int height = y - mouse_data->start_point.y;
-      mouse_data->bounding_box = cv::Rect(
-        mouse_data->start_point.x, mouse_data->start_point.y, width, height);
-      std::cout << "Bounding box: " << mouse_data->bounding_box << std::endl;
-    }
-    break;
-  }
-}
-
-void manual_labeling(Result &result, std::vector<Object> &objects)
-{
-  for (const auto &frame : result.mapping_data) {
-    cv::Mat rgb = std::get<0>(frame);
-    cv::Mat depth = std::get<1>(frame);
-    rtabmap::Transform pose = std::get<2>(frame);
-    std::map<std::pair<int, int>, int> pixel_to_point_map = std::get<3>(frame);
-
-    // Display the image and ask the user for a bounding box
-    image = rgb;
-    cv::imshow("Image", rgb);
-    cv::setMouseCallback("Image", mouse_callback, nullptr);
-    cv::waitKey(0);
-  }
-}
-
 int main(int argc, char *argv[])
 {
   try {
@@ -1219,8 +1178,6 @@ int main(int argc, char *argv[])
 
     std::vector<Object> objects = semantic_mapping(
       net, extractor, result.mapping_data, result.cloud, result.timestamp);
-
-    // manual_labeling(result, objects);
 
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;
