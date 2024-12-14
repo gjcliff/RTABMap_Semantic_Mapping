@@ -975,10 +975,6 @@ std::vector<Object> semantic_mapping(
           int x2 = numpy_array[py::int_(2)].cast<int>();
           int y2 = numpy_array[py::int_(3)].cast<int>();
 
-          // std::cout << "Box: " << x1 << ", " << y1 << ", " << x2 << ", " <<
-          // y2
-          //           << std::endl;
-
           cv::Mat detection_frame = rgb.clone();
           cv::Mat depth_frame = depth.clone();
 
@@ -1050,13 +1046,6 @@ std::vector<Object> semantic_mapping(
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr object_cloud =
         object_cloud_from_bounding_box(elem, pixel_to_point_map, cloud, pose);
 
-      // std::cout << "object cloud size: " << object_cloud->size() <<
-      // std::endl; std::cout << "Detected " << label << " with confidence " <<
-      // conf
-      //           << std::endl;
-      // cv::imshow("Detection", detection_frames.at(iter));
-      // cv::imshow("depth", depth);
-      // cv::waitKey(0);
       // calculate the centroid of the object's pointcloud
       pcl::PointXYZ centroid = exporter.calculate_centroid(object_cloud);
 
