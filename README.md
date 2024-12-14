@@ -8,7 +8,8 @@ Table of Contents:
 1. [Introduction](#introduction)
 2. [Warnings](#warnings)
 3. [Docker](#docker)
-4. [Run on your host system](#run-on-your-host-system)
+4. [For running on LUCI](#for-running-on-luci)
+5. [Run on your host system](#run-on-your-host-system)
 
 ### Introduction
 This repo is a piece of a larger project to perform semantic mapping with
@@ -59,6 +60,27 @@ by adding this option to your ```docker run``` command:
 docker run --rm -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix\
     -v ./output:/app/output rtabmap_dnn <name_of_db_file>
 ```
+### For running on LUCI
+cd into ```/home/luci_ws/src/luci_aw_navigation/``` and run:
+```bash
+git pull
+git switch mobile_phone
+```
+Copy the output file that was just created to your docker container:
+```bash
+docker cp output/<timestamp> luci_msr:/home/luci_ws/src/luci_aw_navigation/awl_navigation/output/
+```
+Copy the landmarks file into the landmarks directory:
+```bash
+docker exec -it luci_msr bash
+cd src/luci_aw_navigation/awl_navigation/output/<timestamp>
+cp landmarks/<timestamp>.yaml ../../landmarks/
+colcon build
+source install/setup.bash
+```
+The necessary commands for running AMCL localization are in the README.md file
+the the luci_awl_navigation repo.
+
 ### Run on your host system
 Make sure that you have ros2 humble installed on your system:
 https://docs.ros.org/en/humble/Installation.html
@@ -111,27 +133,6 @@ To run the executable:
 ```bash
 ./database_exporter <name_of_db_file># <name_of_dnn_model>
 ```
-### For running on LUCI
-cd into ```/home/luci_ws/src/luci_aw_navigation/``` and run:
-```bash
-git pull
-git switch mobile_phone
-```
-Copy the output file that was just created to your docker container:
-```bash
-docker cp output/<timestamp> luci_msr:/home/luci_ws/src/luci_aw_navigation/awl_navigation/output/
-```
-Copy the landmarks file into the landmarks directory:
-```bash
-docker exec -it luci_msr bash
-cd src/luci_aw_navigation/awl_navigation/output/<timestamp>
-cp landmarks/<timestamp>.yaml ../../landmarks/
-colcon build
-source install/setup.bash
-```
-The necessary commands for running AMCL localization are in the README.md file
-the the luci_awl_navigation repo.
-
 ### Warnings
 This project was designed specifically for RTABMap database files that were created
 by the iPhone app without LIDAR. I plan to build in support for all types of
