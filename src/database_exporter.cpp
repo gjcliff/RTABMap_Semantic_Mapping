@@ -57,10 +57,6 @@ DatabaseExporter::DatabaseExporter(std::string rtabmap_database_name,
     std::cout << "Failed to create camera_models directory" << std::endl;
     return;
   }
-  if (!std::filesystem::create_directory(path + "/stereo_models")) {
-    std::cout << "Failed to create stereo_models directory" << std::endl;
-    return;
-  }
   if (!std::filesystem::create_directory(path + "/objects")) {
     std::cout << "Failed to create objects directory" << std::endl;
     return;
@@ -125,19 +121,6 @@ DatabaseExporter::~DatabaseExporter()
         modelName += "_" + uNumber2Str((int)j);
       }
       model.setName(modelName);
-      model.save(dir);
-    }
-  }
-
-  for (size_t i = 0; i < stereo_models_.size(); ++i) {
-    for (size_t j = 0; j < stereo_models_.at(i).size(); ++j) {
-      rtabmap::StereoCameraModel model = stereo_models_.at(i).at(j);
-      std::string modelName = std::to_string(i);
-      std::string dir = path + "/stereo_models/";
-      if (stereo_models_.at(i).size() > 1) {
-        modelName += "_" + std::to_string(j);
-      }
-      model.setName(modelName, "left", "right");
       model.save(dir);
     }
   }
@@ -430,8 +413,6 @@ Result DatabaseExporter::load_rtabmap_db()
 
     // uncompress data
     std::vector<rtabmap::CameraModel> models = node.sensorData().cameraModels();
-    std::vector<rtabmap::StereoCameraModel> stereoModels =
-      node.sensorData().stereoCameraModels();
 
     cv::Mat rgb;
     cv::Mat depth;
@@ -490,7 +471,6 @@ Result DatabaseExporter::load_rtabmap_db()
       // save calibration per image
       // calibration can change over time, e.g. camera has auto focus
       camera_models_.push_back(models);
-      stereo_models_.push_back(stereoModels);
     }
 
     float voxelSize = 0.0f;
@@ -546,12 +526,6 @@ Result DatabaseExporter::load_rtabmap_db()
       rawViewpointIndices.resize(assembledCloudI->size(), iter->first);
     }
 
-    if (models.empty()) {
-      for (size_t i = 0; i < node.sensorData().stereoCameraModels().size();
-           ++i) {
-        models.push_back(node.sensorData().stereoCameraModels()[i].left());
-      }
-    }
 
     robotPoses.insert(std::make_pair(iter->first, iter->second));
     cameraStamps.insert(std::make_pair(iter->first, node.getStamp()));
