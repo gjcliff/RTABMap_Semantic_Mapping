@@ -6,10 +6,10 @@ This repo is part of a larger project. Check out my portfolio post about it [her
 
 Table of Contents:
 1. [Introduction](#introduction)
-2. [Warnings](#warnings)
-3. [Docker](#docker)
-4. [For running on LUCI](#for-running-on-luci)
-5. [Run on your host system](#run-on-your-host-system)
+2. [Docker](#docker)
+3. [For running on LUCI](#for-running-on-luci)
+4. [Run on your host system](#run-on-your-host-system)
+5. [Warnings](#warnings)
 
 ### Introduction
 This repo is a piece of a larger project to perform semantic mapping with
